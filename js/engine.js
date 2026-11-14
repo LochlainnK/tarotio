@@ -18,7 +18,7 @@
 
   var CARDS = Data.CARDS, CARD_BY_ID = Data.CARD_BY_ID;
   var SIGNS = Data.SIGNS, SIGN_BY_ID = Data.SIGN_BY_ID;
-  var SUITS = Data.SUITS, MOONS = Data.MOONS;
+  var SUITS = Data.SUITS, SUIT_ORDER = Data.SUIT_ORDER, MOONS = Data.MOONS;
 
   /* ------------------------------------------------------------------ *
    * Tunable numbers. Change one, then run `npm run simulate` and check
@@ -32,6 +32,7 @@
     GLIMPSES_FIRST_TRY: 2,      // answer right first time
     GLIMPSES_SECOND_TRY: 1,     // answer right on the second try
     MAX_TRIES: 2,
+    BRIGHT_FROM: 4,             // a card is "bright" at Gibbous Moon or better; the tell counts these
     BONUS: { attuned: 1, signCard: 2, trine: 2, majors: 2, pair: 1, triple: 3, run: 2 }
   };
   CONFIG.MAX_INSIGHT = CONFIG.ROUNDS * CONFIG.GLIMPSES_FIRST_TRY;
@@ -44,65 +45,85 @@
         'A new-moon day. The cards ask more of you because you can carry it.',
         'The sky is dark, which is when seeds go in.',
         'A deep day. Whatever you get through today, you keep the strength from.',
-        'The deck runs deep today. Be patient with it, and with yourself.'
+        'The deck runs deep today. Be patient with it, and with yourself.',
+        'A quiet sky. Rest counts as progress today.',
+        'The moon is new, and new moons are for beginnings no one else can see yet.',
+        'Go gently. The cards are asking for patience, and you have it.'
       ],
       close: [
         'The cards ask a lot today because you have a lot to give. Lean on {gift}, go easy on {ease}, and stay on your own side.',
-        'Today is for looking after yourself first. Lean on {gift} and let the small things count.'
+        'Today is for looking after yourself first. Lean on {gift} and let the small things count.',
+        'Give yourself room today. {Gift} is still yours on a dark-moon day, and tomorrow the deck is shuffled fresh.'
       ] },
     { level: 2, moon: 'Crescent Moon', title: 'Gentle', min: 8,
       lines: [
         'A quiet day that rewards a slower pace.',
         'The light is thin, so go by feel and go kindly.',
         'A day for tending what you have, more than for big bets.',
-        'Low tide. Good for noticing what the water usually hides.'
+        'Low tide. Good for noticing what the water usually hides.',
+        'A soft-spoken day. Listen more than you push.',
+        'Small steps and early nights. The moon is only resting.',
+        'Keep your plans light today, and your kindness close.'
       ],
       close: [
         'It is a day for a slower pace. Lean on {gift}, go easy on {ease}, and let small wins count.',
-        'Keep today simple. {Gift} will carry you further than hurry will.'
+        'Keep today simple. {Gift} will carry you further than hurry will.',
+        'Take the gentle road today. {Gift} is enough, and so are you.'
       ] },
     { level: 3, moon: 'Half Moon', title: 'Steady', min: 10,
       lines: [
         'A balanced day. What you put in is what comes back.',
         'Half light, half shadow, all of it workable. Steady hands do well today.',
         'An even keel. Small good choices add up by evening.',
-        'Nothing forced and nothing blocked. The day goes where you steer it.'
+        'Nothing forced and nothing blocked. The day goes where you steer it.',
+        'A fair day. Give it your attention and it gives back.',
+        'The scales sit level today. Your choices tip them.',
+        'Ordinary light, and plenty to see by.'
       ],
       close: [
         'The day gives back what you put in. Bring {gift}, and go easy on {ease}.',
-        'Today is yours to steer. {Gift} is the right tool for it.'
+        'Today is yours to steer. {Gift} is the right tool for it.',
+        'Nothing is in your way today and nothing is pushing you. Let {gift} set the pace.'
       ] },
     { level: 4, moon: 'Gibbous Moon', title: 'Favoured', min: 13,
       lines: [
         'The wind is behind you. Most of what you try today goes your way.',
         'A bright hand. Lean in, and the day leans with you.',
         'The odds tilt your way today, by a wide margin.',
-        'Good fortune is in the room. Give it something to do.'
+        'Good fortune is in the room. Give it something to do.',
+        'Doors open easily today. Walk through a few.',
+        'The cards smile on effort today, so make some.',
+        'A good day to ask, to start, or to say it out loud.'
       ],
       close: [
         'The day leans your way. Bring {gift} and meet it halfway.',
-        'Luck is close by today. Point {gift} at the thing you care about most.'
+        'Luck is close by today. Point {gift} at the thing you care about most.',
+        'Ask for the thing today. With {gift} behind it, the answer leans yes.'
       ] },
     { level: 5, moon: 'Full Moon', title: 'Blessed', min: 15,
       lines: [
         'A full-moon day. The cards could hardly be kinder.',
         'Everything lines up. Ask for what you want today.',
         'Rare light on the table. Use it boldly.',
-        'The deck has dealt you its best. Walk like you know it.'
+        'The deck has dealt you its best. Walk like you know it.',
+        'Fortune is wide awake today, and looking your way.',
+        'Today the answer is mostly yes.',
+        'A day to remember you were lucky, and to pass some of it on.'
       ],
       close: [
         'The cards are firmly with you today. Spend the luck on something that matters, and bring {gift}.',
-        'This is the day to try the thing you have been saving. {Gift} and a full moon are a strong pair.'
+        'This is the day to try the thing you have been saving. {Gift} and a full moon are a strong pair.',
+        'Say yes more than usual today. {Gift} will know what to do with the luck.'
       ] }
   ];
 
   var POSITIONS = [
     { id: 'past', name: 'Past', blurb: 'what you carry into today',
-      leads: ['You came into today carrying {k}.', 'Behind you sits {k}.', 'The ground under today is {k}.'] },
+      leads: ['You came into today carrying {k}.', 'Behind today: {k}.', 'What shaped this morning: {k}.'] },
     { id: 'present', name: 'Present', blurb: 'the heart of today',
-      leads: ['The heart of today is {k}.', 'Right now the day turns on {k}.', 'In front of you is {k}.'] },
+      leads: ['At the heart of today: {k}.', 'Right now the day turns on {k}.', 'In front of you: {k}.'] },
     { id: 'future', name: 'Future', blurb: 'where today is heading',
-      leads: ['The day is heading toward {k}.', 'By evening, look for {k}.', 'Coming into view is {k}.'] }
+      leads: ['The day is heading toward {k}.', 'By evening, look for {k}.', 'Coming into view: {k}.'] }
   ];
 
   var INSIGHT_TITLES = ['Wanderer', 'Seeker', 'Apprentice', 'Reader', 'Keen Eye', 'Seer', 'Oracle'];
@@ -208,6 +229,18 @@
     return card.name;
   }
 
+  function isBright(c) { return auspice(c) >= CONFIG.BRIGHT_FROM; }
+
+  // The tell: how many bright cards a hand holds, and how many of those are still face down.
+  // It is public from the moment the hand is dealt. It never says which cards they are,
+  // so it gives every player their odds and gives a player with glimpses something to reason from.
+  function handTell(hand, seen) {
+    seen = seen || [];
+    var bright = hand.filter(isBright).length;
+    var seenBright = seen.filter(function (i) { return isBright(hand[i]); }).length;
+    return { size: hand.length, bright: bright, unseen: hand.length - seen.length, unseenBright: bright - seenBright };
+  }
+
   /* -------------------------------- deal ------------------------------ */
 
   // A hand is fair when it holds something bright to find and something deep to avoid,
@@ -269,9 +302,6 @@
     if (majors === 3) {
       out.push({ id: 'majors', title: 'Fate’s Hand', poker: 'three of a kind', bonus: B.majors,
         text: 'All three cards are Major Arcana. Readers take that as a day shaped by large forces. Pay attention; today matters.' });
-    } else if (majors === 2) {
-      out.push({ id: 'majors2', title: 'Two Major Arcana', poker: null, bonus: 0,
-        text: 'Two of your three cards are Major Arcana, so bigger themes run under today’s small events.' });
     }
 
     // Suits.
@@ -280,8 +310,6 @@
     Object.keys(suitCount).forEach(function (s) {
       if (suitCount[s] === 3) {
         out.push({ id: 'trine', title: 'Trine of ' + SUITS[s].name, poker: 'a flush', bonus: B.trine, text: SUITS[s].trine });
-      } else if (suitCount[s] === 2) {
-        out.push({ id: 'lead', title: SUITS[s].name + ' lead', poker: null, bonus: 0, text: SUITS[s].lead });
       }
     });
 
@@ -409,20 +437,36 @@
     return pools;
   })();
 
+  // Wrong options. For a Minor Arcana card they come from the other suits, so a player
+  // who knows what the four suits stand for can reason the answer out without memorising cards.
   function distractorCards(target, rng) {
+    if (target.arcana === 'minor') {
+      return SUIT_ORDER.filter(function (su) { return su !== target.suit; }).map(function (su) {
+        return pick(CARDS.filter(function (c) {
+          return c.suit === su && c.n !== target.n && !overlaps(c.up.k, target.up.k);
+        }), rng);
+      });
+    }
     var pool = CARDS.filter(function (c) {
-      return c.id !== target.id && c.arcana === target.arcana && c.n !== target.n &&
-        !overlaps(c.up.k, target.up.k);
+      return c.id !== target.id && c.arcana === 'major' && !overlaps(c.up.k, target.up.k);
     });
     return shuffle(pool, rng).slice(0, 3);
   }
+  // `own` is the same card's other orientation: the deliberate near miss.
   function distractorKeywords(target, correct, own, rng) {
-    var out = [own];
-    var pool = shuffle(CARDS.filter(function (c) { return c.id !== target.id; }), rng);
+    var out = [own], usedSuit = {};
+    var pool = shuffle(CARDS.filter(function (c) {
+      if (c.id === target.id) return false;
+      return target.arcana === 'minor' ? (c.suit && c.suit !== target.suit) : c.arcana === 'major';
+    }), rng);
     for (var i = 0; i < pool.length && out.length < 3; i++) {
-      var k = rng() < 0.5 ? pool[i].up.k : pool[i].rev.k;
-      var clash = overlaps(k, correct) || out.some(function (o) { return overlaps(o, k); });
-      if (!clash) out.push(k);
+      var c = pool[i];
+      if (c.suit && usedSuit[c.suit]) continue;
+      var k = rng() < 0.5 ? c.up.k : c.rev.k;
+      var clash = overlaps(k, correct) || out.some(function (o) { return o === k || overlaps(o, k); });
+      if (clash) continue;
+      out.push(k);
+      if (c.suit) usedSuit[c.suit] = true;
     }
     return out;
   }
@@ -584,24 +628,48 @@
         auspice: f.a, keywords: f.k, attuned: isAttuned(p, game.sign),
         lead: pick(POSITIONS[i].leads, rng).replace('{k}', kwPhrase(f.k)),
         text: f.t, how: how[i],
+        // for a card kept unseen: how many of the face-down cards were bright when it was chosen
+        odds: how[i] === 'sight' ? null : (function (t) { return { bright: t.unseenBright, of: t.unseen }; })(handTell(hand, game.rounds[i].seen)),
+        bright: isBright(p),
         rankInHand: brighter + 1, bestInHand: best, wasBrightest: brighter === 0
       };
     });
 
-    // Which element leads the spread.
-    var suitCount = {}, majors = 0, lead = null;
+    // Which element leads the spread. Left empty when a pattern already says it (a trine, or three Majors).
+    var suitCount = {}, majors = 0, lead = null, trine = false;
     picks.forEach(function (p) {
       var c = CARD_BY_ID[p.id];
       if (c.suit) suitCount[c.suit] = (suitCount[c.suit] || 0) + 1; else majors++;
     });
-    Object.keys(suitCount).forEach(function (s) { if (suitCount[s] >= 2) lead = s; });
-    var blend = lead ? SUITS[lead].lead
-      : majors >= 2 ? 'Major Arcana lead the spread, so today is about the big themes more than the to-do list.'
+    Object.keys(suitCount).forEach(function (su) {
+      if (suitCount[su] === 3) trine = true;
+      else if (suitCount[su] === 2) lead = su;
+    });
+    var blend = trine || majors === 3 ? null
+      : lead ? SUITS[lead].lead
+      : majors === 2 ? 'Two Major Arcana lead the spread, so today is about the big themes more than the to-do list.'
       : 'The spread is mixed: some heart, some head, some will, some ground. Today asks for all of you.';
+
+    // The day in one line, from the first keyword of each card. Unique to this spread.
+    var first = function (p) { return p.keywords.split(', ')[0]; };
+    var arc = 'From ' + first(positions[0]) + ', through ' + first(positions[1]) + ', toward ' + first(positions[2]) + '.';
 
     var closeLine = pick(tier.close, rng).replace('{gift}', sign.gift).replace('{Gift}', cap(sign.gift)).replace('{ease}', sign.ease);
     var sightCount = how.filter(function (h) { return h === 'sight'; }).length;
-    var verdict = pick(VERDICTS[band3(insight, 2, 4)][band3(score.tier, 2, 4)], rng);
+    var gambles = how.filter(function (h) { return h === 'gamble'; }).length;
+
+    // Skill band for the verdict. Earning glimpses and then passing on them twice is trusting the deck, so it reads as luck.
+    var skillBand = band3(insight, 2, 4);
+    if (skillBand === 'high' && gambles >= 2) skillBand = 'mid';
+    var verdict = pick(VERDICTS[skillBand][band3(score.tier, 2, 4)], rng);
+
+    // What fate did with the cards the player could not see.
+    var unseen = positions.filter(function (p) { return p.how !== 'sight'; });
+    var hits = unseen.filter(function (p) { return p.bright; }).length;
+    var luckLine = !unseen.length ? 'You chose all three cards by sight. The luck today was in what the deal put within reach.'
+      : hits === unseen.length ? (unseen.length === 1 ? 'Your one unseen pick came up bright: fate was kind.' : 'All ' + unseen.length + ' of your unseen picks came up bright: fate was very kind.')
+      : hits === 0 ? (unseen.length === 1 ? 'Your one unseen pick came up quiet this time.' : 'Your ' + unseen.length + ' unseen picks came up quiet this time. That is the shuffle.')
+      : hits + ' of your ' + unseen.length + ' unseen picks came up bright.';
 
     return {
       mode: game.mode, date: game.date, dayNo: dayNumber(game.date), sign: sign,
@@ -609,10 +677,11 @@
       insight: insight, insightTitle: INSIGHT_TITLES[insight], sightCount: sightCount,
       score: score, tier: tier, odds: odds, standing: stand,
       headline: pick(tier.lines, rng),
+      arc: arc,
       blend: blend,
       quintessence: quintessence(picks),
-      closing: sign.open + ' ' + closeLine,
-      verdict: verdict
+      closing: pick(sign.opens, rng) + ' ' + closeLine,
+      verdict: verdict, luckLine: luckLine, unseenPicks: unseen.length, unseenHits: hits
     };
   }
 
@@ -627,6 +696,7 @@
     var stars = '';
     for (var i = 0; i < CONFIG.MAX_INSIGHT; i++) stars += i < sum.insight ? '✦' : '✧';
     lines.push('Insight ' + stars + ' ' + sum.insight + '/' + CONFIG.MAX_INSIGHT);
+    lines.push(sum.standing.isBest ? 'The brightest reading in the deck' : 'Brighter than ' + sum.standing.pct + '% of the deck');
     lines.push('👁️ by sight · 🎲 by fate');
     if (url) lines.push(url);
     return lines.join('\n');
@@ -636,7 +706,7 @@
     CONFIG: CONFIG, TIERS: TIERS, POSITIONS: POSITIONS, INSIGHT_TITLES: INSIGHT_TITLES, POOLS: POOLS,
     rngFrom: rngFrom, shuffle: shuffle, pick: pick,
     dateStr: dateStr, dayNumber: dayNumber, dailySeed: dailySeed,
-    face: face, auspice: auspice, worth: worth, cardLabel: cardLabel, isAttuned: isAttuned,
+    face: face, auspice: auspice, worth: worth, cardLabel: cardLabel, isAttuned: isAttuned, isBright: isBright, handTell: handTell,
     roman: roman, kwPhrase: kwPhrase, cap: cap,
     dealHands: dealHands, handIsFair: handIsFair,
     detectPatterns: detectPatterns, scoreSpread: scoreSpread, tierFor: tierFor,

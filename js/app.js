@@ -35,13 +35,35 @@
       if (!raw) return blank;
       var s = JSON.parse(raw);
       if (!s || s.v !== 1) return blank;
-      if (!Array.isArray(s.history)) s.history = [];
       if (s.sign && !D.SIGN_BY_ID[s.sign]) s.sign = null;
+      s.history = (Array.isArray(s.history) ? s.history : []).filter(function (h) {
+        return h && /^\d{4}-\d{2}-\d{2}$/.test(h.date) && h.tier >= 1 && h.tier <= 5 && h.insight >= 0 && h.insight <= CFG.MAX_INSIGHT;
+      });
+      if (s.daily && !validGame(s.daily)) s.daily = null;
       return s;
     } catch (e) { return blank; }
   }
   function saveStore() {
     try { window.localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* private mode: play still works */ }
+  }
+
+  var PHASES = ['question', 'answered', 'glimpse', 'choose', 'reveal'];
+  // A saved game is only resumed if every field is in range. Anything else is dropped and the day starts clean.
+  function validGame(g) {
+    try {
+      if (!g || g.v !== 1 || (g.mode !== 'daily' && g.mode !== 'practice')) return false;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(g.date) || !D.SIGN_BY_ID[g.sign] || typeof g.seedKey !== 'string') return false;
+      if (!(g.round >= 0 && g.round < CFG.ROUNDS) || PHASES.indexOf(g.phase) === -1) return false;
+      if (!Array.isArray(g.rounds) || g.rounds.length !== CFG.ROUNDS) return false;
+      var inHand = function (x) { return Number.isInteger(x) && x >= 0 && x < CFG.HAND_SIZE; };
+      return g.rounds.every(function (r, i) {
+        if (!r || !Array.isArray(r.tries) || !Array.isArray(r.seen)) return false;
+        if (!(r.glimpses >= 0 && r.glimpses <= CFG.GLIMPSES_FIRST_TRY) || r.seen.length > r.glimpses) return false;
+        if (!r.seen.every(inHand) || (r.pick !== null && !inHand(r.pick))) return false;
+        var finished = i < g.round || g.done || (i === g.round && g.phase === 'reveal');
+        return finished ? r.pick !== null : r.pick === null;
+      });
+    } catch (e) { return false; }
   }
 
   var store = loadStore();
@@ -115,7 +137,7 @@
   }
   function moonLine(c) {
     var a = E.auspice(c);
-    return moonSVG(a) + '<span class="kw-name">' + MOONS[a].name + '</span>';
+    return moonSVG(a) + '<span class="kw-name">' + MOONS[a].name + '</span><span class="scale">' + a + '/5</span>';
   }
   function attunedTag(c, sign) {
     return E.isAttuned(c, sign) ? '<span class="plus" title="A card in your element shines one step brighter">+1 ' + D.SIGN_BY_ID[sign].element + '</span>' : '';
@@ -252,6 +274,8 @@
     game.phase = cur().glimpses > 0 ? 'glimpse' : 'choose';
     persist();
     renderPlay(false);
+    focusOn($('hand').querySelector('.pcard:not(:disabled)'));
+    reveal($('spread'));
   }
   function peek(i) {
     var r = cur();
@@ -323,15 +347,65 @@
     el.classList.toggle('is-dealing', !!deal);
   }
 
+  // While cards are being turned and chosen, the reader's panel sits BELOW the hand, so the
+  // cards never move under the player's finger when the panel's text changes height.
+  function placeReader() {
+    var play = $('view-play'), reader = $('reader');
+    var table = game.phase === 'glimpse' || game.phase === 'choose' || game.phase === 'reveal';
+    var before = table ? $('seen-wrap') : $('tell');
+    if (reader.nextElementSibling !== before) play.insertBefore(reader, before);
+    play.classList.toggle('is-table', table);
+  }
+
+  function renderTell() {
+    var el = $('tell');
+    var r = cur(), t = E.handTell(hands[game.round], r.seen);
+    if (game.phase === 'reveal') {
+      var kept = E.isBright(hands[game.round][r.pick]);
+      el.innerHTML = '<span class="tell-k">The tell</span><span>' +
+        (t.bright === 1 ? '1 of these five cards was bright' : t.bright + ' of these five cards were bright') +
+        ' <span class="tell-note">(Gibbous or Full Moon)</span>. ' +
+        (kept ? (t.bright === 1 ? 'You kept it.' : 'You kept one of them.') : 'Yours is one of the quieter ' + (t.size - t.bright) + '.') + '</span>';
+      el.hidden = false;
+      return;
+    }
+    var html = '<span class="tell-k">The tell</span><span>' +
+      (t.bright === 1 ? '1 of these five cards is bright' : t.bright + ' of these five cards are bright') +
+      ' <span class="tell-note">(Gibbous or Full Moon)</span>. ';
+    if (r.seen.length) {
+      html += 'Still face down: ' + t.unseen + ' cards, ' + (t.unseenBright ? t.unseenBright + ' of them bright' : 'none of them bright') + '.';
+    } else {
+      html += 'Picked blind, the odds of a bright card are ' + t.bright + ' in ' + t.size + '.';
+    }
+    el.innerHTML = html + '</span>';
+    el.hidden = false;
+  }
+
+  function focusOn(el) {
+    if (!el) return;
+    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+  }
+  // If the control the player was on has gone (the panel was redrawn), put focus on the next thing to do.
+  function restoreFocus() {
+    var a = document.activeElement;
+    if (a && a !== document.body && document.body.contains(a) && !a.disabled) return;
+    focusOn($('reader').querySelector('.btn.primary') || $('reader').querySelector('.opt:not(:disabled)') ||
+      $('hand').querySelector('.pcard:not(:disabled)'));
+  }
+  function reveal(el) {
+    if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* older browsers */ } }
+  }
+
   function renderPlay(focusPrimary) {
+    placeReader();
     renderSpread();
+    renderTell();
     renderReader();
     syncHand();
     renderSeen();
-    if (focusPrimary) {
-      var b = $('reader').querySelector('.btn.primary');
-      if (b) { try { b.focus({ preventScroll: true }); } catch (e) { b.focus(); } }
-    }
+    var primary = $('reader').querySelector('.btn.primary');
+    if (focusPrimary && primary) { focusOn(primary); reveal(primary); }
+    else restoreFocus();
   }
 
   function renderSpread() {
@@ -368,15 +442,22 @@
     }).join('');
     return '<h2 class="question">' + esc(q.q) + '</h2><div class="options">' + opts + '</div>';
   }
-  var HOW_LINE = {
-    sight: 'Chosen by sight: you knew what you were keeping.',
-    gamble: 'A gamble: you passed on what you saw and trusted the deck.',
-    fate: 'Left to fate: you chose without a glimpse.'
-  };
+  function oddsText(t) { return t.unseenBright + ' in ' + t.unseen; }
+  function howLine(how, t, bright) {
+    if (how === 'sight') return 'Chosen by sight: you knew what you were keeping.';
+    var lead = how === 'gamble' ? 'A gamble: you passed on what you saw and trusted the deck'
+      : 'Left to fate: you chose without a glimpse';
+    return lead + ', at ' + oddsText(t) + ' for a bright card.' + (bright ? ' Fate came through.' : '');
+  }
+  function attunedHint(c, sign) {
+    return E.isAttuned(c, sign) ? '<p class="hint"><span>+1 ' + D.SIGN_BY_ID[sign].element +
+      ': a card in your element shines one step brighter for you.</span></p>' : '';
+  }
   var NEXT_LABEL = ['Deal the Present', 'Deal the Future', 'Read my three cards'];
 
   function renderReader() {
     var r = cur(), q = questions[game.round], hand = hands[game.round], p = position();
+    var tell = E.handTell(hand, r.seen);
     var html = '';
     if (game.phase === 'question') {
       html = eyebrowHTML() + questionHTML(false) +
@@ -387,7 +468,7 @@
         : 'The answer was “' + esc(q.options[q.answer]) + '”.';
       var earned = r.glimpses === 2 ? 'You earned two glimpses of this hand.'
         : r.glimpses === 1 ? 'You earned one glimpse of this hand.'
-        : 'No glimpses this hand, so this card is left to fate. Fate still finds the brightest card about one time in five.';
+        : 'No glimpses this hand, so this card is left to fate. The tell gives your odds: ' + tell.bright + ' in ' + tell.size + ' for a bright card.';
       html = eyebrowHTML() + questionHTML(true) +
         '<p class="why"><b>' + head + '</b> ' + esc(q.why) + '</p>' +
         '<p class="hint">' + (r.glimpses ? chipsHTML(r.glimpses, 0) : '') + '<span>' + earned + '</span></p>' +
@@ -406,8 +487,10 @@
       } else {
         var c = hand[ui.selected], seen = r.seen.indexOf(ui.selected) !== -1;
         html = eyebrowHTML() + (seen
-          ? '<h2 class="prompt">' + esc(E.cardLabel(c)) + '</h2><p class="kw">' + moonLine(c) + attunedTag(c, game.sign) + '<span>' + esc(E.face(c).k) + '</span></p>'
-          : '<h2 class="prompt">Card ' + (ui.selected + 1) + ', unseen</h2><p class="hint"><span>Keeping it leaves your ' + p.name + ' to the deck.</span></p>') +
+          ? '<h2 class="prompt">' + esc(E.cardLabel(c)) + '</h2><p class="kw">' + moonLine(c) + attunedTag(c, game.sign) + '<span>' + esc(E.face(c).k) + '</span></p>' + attunedHint(c, game.sign)
+          : '<h2 class="prompt">Card ' + (ui.selected + 1) + ', unseen</h2><p class="hint"><span>Keeping it leaves your ' + p.name + ' to the deck. ' +
+            (tell.unseenBright ? tell.unseenBright + ' of the ' + tell.unseen + ' face-down cards ' + (tell.unseenBright === 1 ? 'is' : 'are') + ' bright.'
+              : 'None of the face-down cards is bright, so the brightest cards are the ones you have seen.') + '</span></p>') +
           '<button type="button" class="btn primary" data-act="keep">Keep this card</button>';
       }
     } else if (game.phase === 'reveal') {
@@ -418,7 +501,8 @@
       html = '<p class="eyebrow">Your ' + p.name + ' card<span class="eyebrow-sub">' + p.blurb + '</span></p>' +
         '<h2 class="prompt">' + esc(E.cardLabel(pc)) + '</h2>' +
         '<p class="kw">' + moonLine(pc) + attunedTag(pc, game.sign) + '<span>' + esc(E.face(pc).k) + '</span></p>' +
-        '<p class="how">' + HOW_LINE[E.howChosen(r)] + ' ' + esc(rank) + '</p>' +
+        attunedHint(pc, game.sign) +
+        '<p class="how">' + howLine(E.howChosen(r), tell, E.isBright(pc)) + ' ' + esc(rank) + '</p>' +
         '<button type="button" class="btn primary" data-act="next">' + NEXT_LABEL[game.round] + '</button>';
     }
     $('reader').innerHTML = html;
@@ -471,6 +555,7 @@
     gamble: ['', 'A gamble on an unseen card'],
     fate: ['', 'Left to fate']
   };
+  function barWidth(n, max) { return n && max ? Math.max(1.5, (n / max) * 100).toFixed(1) : '0'; }
   function ordinal(n) { return n + (['th', 'st', 'nd', 'rd'][n] || 'th'); }
 
   function readingHTML(sum) {
@@ -478,12 +563,12 @@
     var modeLine = (sum.mode === 'daily' ? 'Day ' + sum.dayNo : 'Practice hand') + ' · ' + sym(sign.glyph) + ' ' + sign.name +
       (sum.mode === 'daily' ? '' : '<span class="eyebrow-sub">not your daily reading</span>');
 
-    var trio = sum.positions.map(function (p) {
+    var trio = sum.positions.map(function (p, i) {
       var tag = HOW_TAG[p.how];
-      return '<li class="trio-item"><div class="trio-card">' + staticCard(p.card) + '</div><div class="trio-copy">' +
+      return '<li class="trio-item" style="--i:' + i + '"><div class="trio-card">' + staticCard(p.card) + '</div><div class="trio-copy">' +
         '<p class="eyebrow">' + p.position + '<span class="eyebrow-sub">' + p.blurb + '</span></p>' +
         '<h3 class="trio-name">' + esc(p.name) + '</h3>' +
-        '<p class="trio-meta">' + (p.reversed ? 'Reversed' : 'Upright') + ' · ' + moonSVG(p.auspice) + MOONS[p.auspice].name + attunedTag(p.card, sign.id) + '</p>' +
+        '<p class="trio-meta">' + (p.reversed ? 'Reversed' : 'Upright') + ' · ' + moonSVG(p.auspice) + MOONS[p.auspice].name + ' ' + p.auspice + '/5' + attunedTag(p.card, sign.id) + '</p>' +
         '<p class="trio-lead">' + esc(p.lead) + '</p><p>' + esc(p.text) + '</p>' +
         '<p class="trio-tag"><span class="tag ' + tag[0] + '">' + (p.how === 'sight' ? eyeSVG() : '') + tag[1] + '</span></p>' +
         '</div></li>';
@@ -510,9 +595,10 @@
       var qLine = r.solved ? (r.tries.length === 1 ? 'Question right first time' : 'Question right on the second try') : 'Question not solved';
       var gLine = r.glimpses === 2 ? 'two glimpses' : r.glimpses === 1 ? 'one glimpse' : 'no glimpses';
       var rankLine = p.wasBrightest ? 'the brightest of its five' : ordinal(p.rankInHand) + ' brightest of its five';
+      var howText = HOW_TAG[p.how][1] + (p.odds ? ' at ' + p.odds.bright + ' in ' + p.odds.of + ' for a bright card' : '');
       return '<li><span class="r-pos">' + p.position + '</span><span class="r-body">' +
         '<span class="r-card">' + esc(p.label) + moonSVG(p.auspice) + '</span>' +
-        '<span class="r-line">' + qLine + ', ' + gLine + '. ' + HOW_TAG[p.how][1] + ', and ' + rankLine + '.</span></span></li>';
+        '<span class="r-line">' + qLine + ', ' + gLine + '. ' + howText + ', and ' + rankLine + '.</span></span></li>';
     }).join('');
 
     var maxCount = Math.max.apply(null, sum.odds.tierCounts);
@@ -521,12 +607,22 @@
       var n = sum.odds.tierCounts[k], yours = k === sum.score.tier;
       odds += '<div class="odds-row' + (yours ? ' is-yours' : '') + '" title="' + n + ' of ' + sum.odds.count + ' possible readings">' +
         '<span class="odds-label">' + moonSVG(k, E.TIERS[k].moon) + '<span class="odds-name">' + E.TIERS[k].moon + '</span></span>' +
-        '<span class="odds-track"><span class="odds-bar" style="width:' + ((n / maxCount) * 100).toFixed(1) + '%"></span></span>' +
+        '<span class="odds-track"><span class="odds-bar" style="width:' + barWidth(n, maxCount) + '%"></span></span>' +
         '<span class="odds-n">' + n + (yours ? ' · yours' : '') + '</span></div>';
     }
     var sightLine = sum.sightCount === 3 ? 'You chose all three cards by sight.'
       : sum.sightCount === 0 ? 'All three of your cards were left to chance.'
       : sum.sightCount + ' of your three cards ' + (sum.sightCount === 1 ? 'was' : 'were') + ' chosen by sight, and the rest left to chance.';
+
+    // The story in a few facts, so nobody has to scroll to learn how much was skill and how much was the deck.
+    var facts = '<li><b>' + sum.insight + '/' + CFG.MAX_INSIGHT + '</b> insight</li>' +
+      '<li>' + (st.isBest ? '<b>Brightest</b> reading in the deck' : 'Brighter than <b>' + st.pct + '%</b> of the deck') + '</li>' +
+      '<li><b>' + sum.sightCount + ' of 3</b> chosen by sight</li>';
+    if (sum.mode === 'daily') {
+      var streak = streaks().current;
+      if (streak > 1) facts += '<li><b>' + streak + '</b> day streak</li>';
+    }
+    var quint = sum.quintessence;
 
     var daily = todaysDaily();
     var after = '<button type="button" class="btn primary" data-act="share">Copy result to share</button>';
@@ -539,17 +635,20 @@
     return '<header class="fortune"><div class="fortune-moon">' + moonSVG(sum.score.tier, sum.tier.moon) + '</div><div class="fortune-copy">' +
       '<p class="eyebrow">' + modeLine + '</p>' +
       '<h2 class="fortune-title">' + sum.tier.moon + '<span class="fortune-word">' + sum.tier.title + '</span></h2>' +
-      '<p class="fortune-line">' + esc(sum.headline) + '</p></div></header>' +
+      '<p class="fortune-line">' + esc(sum.headline) + '</p>' +
+      '<p class="fortune-arc">' + esc(sum.arc) + '</p></div></header>' +
+      '<ul class="facts">' + facts + '</ul>' +
 
       '<ol class="trio">' + trio + '</ol>' +
 
-      '<section class="together"><h3 class="sec-h">Read together</h3><p>' + esc(sum.blend) + '</p>' +
+      '<section class="together"><h3 class="sec-h">Read together</h3>' + (sum.blend ? '<p>' + esc(sum.blend) + '</p>' : '') +
       (patterns ? '<ul class="patterns">' + patterns + '</ul>' : '') +
-      '<p><b>Quintessence.</b> ' + esc(sum.quintessence.text) + '</p>' +
+      '<div class="quint"><div class="quint-card">' + staticCard({ id: quint.card.id, rev: false }) + '</div>' +
+      '<p><b>Quintessence: ' + esc(quint.card.name) + '.</b> ' + esc(quint.text) + '</p></div>' +
       '<p class="closing">' + esc(sum.closing) + '</p></section>' +
 
       '<section class="fell"><h3 class="sec-h">How it fell: your part and the deck’s</h3>' +
-      '<p class="verdict">' + esc(sum.verdict) + '</p>' +
+      '<p class="verdict">' + esc(sum.verdict) + '</p><p>' + esc(sum.luckLine) + '</p>' +
       '<div class="meters">' +
       '<div class="meter"><p class="meter-k">Insight<span>your part</span></p>' +
       '<p class="meter-v">' + sum.insight + '<span class="of">/' + CFG.MAX_INSIGHT + '</span><span class="meter-title">' + sum.insightTitle + '</span></p>' +
@@ -633,9 +732,16 @@
     for (var k = 5; k >= 1; k--) {
       bars += '<div class="odds-row" title="' + counts[k] + ' of ' + h.length + ' readings">' +
         '<span class="odds-label">' + moonSVG(k, E.TIERS[k].moon) + '<span class="odds-name">' + E.TIERS[k].moon + '</span></span>' +
-        '<span class="odds-track"><span class="odds-bar" style="width:' + (max ? (counts[k] / max) * 100 : 0).toFixed(1) + '%"></span></span>' +
+        '<span class="odds-track"><span class="odds-bar" style="width:' + barWidth(counts[k], max) + '%"></span></span>' +
         '<span class="odds-n">' + counts[k] + '</span></div>';
     }
+    var recent = h.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).slice(-14);
+    var recentHTML = recent.map(function (x) {
+      var d = x.date.split('-').map(Number);
+      var label = new Date(d[0], d[1] - 1, d[2]).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+      return '<li title="' + label + ': ' + E.TIERS[x.tier].moon + ', insight ' + x.insight + ' of ' + CFG.MAX_INSIGHT + '">' +
+        moonSVG(x.tier, label + ', ' + E.TIERS[x.tier].moon) + '<span>' + x.insight + '</span></li>';
+    }).join('');
     body.innerHTML =
       '<div class="tiles">' +
       '<div class="tile"><span class="tile-v">' + h.length + '</span><span class="tile-k">readings</span></div>' +
@@ -643,9 +749,10 @@
       '<div class="tile"><span class="tile-v">' + s.best + '</span><span class="tile-k">best streak</span></div>' +
       '<div class="tile"><span class="tile-v">' + avg.toFixed(1) + '</span><span class="tile-k">average insight, of ' + CFG.MAX_INSIGHT + '</span></div>' +
       '</div>' +
+      '<h3 class="mini-h">Your last ' + (recent.length === 1 ? 'reading' : recent.length + ' readings') + '</h3><ol class="recent">' + recentHTML + '</ol>' +
       '<h3 class="mini-h">How your fortunes have fallen</h3><div class="odds">' + bars + '</div>' +
       '<p class="meter-note"><b>' + lucky + '</b> lucky ' + (lucky === 1 ? 'break' : 'breaks') + ': bright readings on two glimpses or fewer. ' +
-      '<b>' + earned + '</b> earned: bright readings on four glimpses or more.</p>';
+      '<b>' + earned + '</b> earned: bright readings on four glimpses or more. The number under each moon is that day’s insight.</p>';
   }
 
   /* -------------------------------- clock ----------------------------- */
@@ -725,6 +832,24 @@
     });
   }
 
+  // 1-4 (or A-D) answer a question; 1-5 turn or pick up a card. Buttons handle Enter and Space themselves.
+  function onKey(e) {
+    if (!game || game.done || e.ctrlKey || e.metaKey || e.altKey || $('view-play').hidden) return;
+    if (document.querySelector('dialog[open]')) return;
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    var key = String(e.key || '').toLowerCase();
+    if (key.length !== 1) return;
+    var n = '12345'.indexOf(key);
+    if (game.phase === 'question') {
+      if (n === -1) n = 'abcd'.indexOf(key);
+      if (n >= 0 && n < 4) { e.preventDefault(); answer(n); }
+    } else if ((game.phase === 'glimpse' || game.phase === 'choose') && n >= 0 && n < CFG.HAND_SIZE) {
+      e.preventDefault();
+      if (game.phase === 'glimpse') peek(n); else select(n);
+    }
+  }
+
   function renderLegend() {
     var html = '';
     for (var k = 5; k >= 1; k--) html += '<div class="legend-row">' + moonSVG(k) + '<b>' + MOONS[k].name + '</b><span>' + MOONS[k].word + '</span></div>';
@@ -733,10 +858,18 @@
 
   function boot() {
     wire();
+    document.addEventListener('keydown', onKey);
     renderLegend();
     renderSigns();
     var d = todaysDaily();
-    if (d) resume(d); else showIntro();
+    try {
+      if (d) resume(d); else showIntro();
+    } catch (err) {
+      // A save this version cannot read: drop today's game and start clean. Sign and history are kept.
+      store.daily = null;
+      saveStore();
+      showIntro();
+    }
     window.setInterval(tick, 1000);
   }
 

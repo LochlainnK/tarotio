@@ -30,6 +30,11 @@ Then open `http://localhost:8080`.
 3. **Keep.** Choose any card, seen or unseen.
 4. Repeat for the Present and the Future, then read your three cards.
 
+Every hand shows a tell: how many of its five cards are bright, without saying which. It
+updates as you turn cards, so you always know your odds before you keep an unseen one.
+
+Keyboard: 1 to 4 answer a question, 1 to 5 pick a card, Enter confirms.
+
 Card meanings follow the Rider-Waite-Smith tradition, including reversals. Cards in your
 sign's element shine a step brighter, and patterns across the three cards (a shared suit,
 a repeated number, a run, your sign's own card) add to the fortune.

@@ -6,6 +6,7 @@
 <title>Tarotio</title>
 <meta name="description" content="A daily three-card tarot game for your star sign. Answer the reader's questions, earn a glimpse of the face-down cards, and keep one from each hand.">
 <meta name="theme-color" content="#163b34">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='5' fill='%238d2e2a' stroke='%23f7f1dd' stroke-width='4'/%3E%3Crect x='26' y='26' width='12' height='12' transform='rotate(45 32 32)' fill='%23f2c230'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;1,400&family=Alegreya+Sans:wght@400;500;700&family=Macondo&family=Macondo+Swash+Caps&display=swap">
@@ -88,6 +89,7 @@
     <section id="view-play" class="view play" hidden>
       <div class="spread" id="spread" role="group" aria-label="Your spread so far"></div>
       <div class="reader" id="reader" aria-live="polite"></div>
+      <p class="tell" id="tell" hidden></p>
       <div class="hand" id="hand" role="group" aria-label="This hand of five cards"></div>
       <div class="seen-wrap" id="seen-wrap" hidden>
         <h3 class="mini-h" id="seen-h">What you have seen</h3>
@@ -121,11 +123,15 @@
     <p>Every card has a brightness for the day, from New Moon to Full Moon. It comes from the card&rsquo;s traditional meaning and whether it lands upright or reversed. A reversed card is often dimmer, but the hardest cards turn kinder when reversed.</p>
     <div class="legend" id="moon-legend"></div>
     <p>No card is bad. New-moon cards are the ones that ask something of you.</p>
+    <h3 class="mini-h">The tell</h3>
+    <p>Every hand comes with a tell: how many of its five cards are bright, meaning Gibbous or Full Moon. It never says which. As you turn cards over, the tell counts how many bright ones are still face down, so you always know your odds before you keep an unseen card.</p>
     <h3 class="mini-h">Skill and luck</h3>
     <p>Your answers earn glimpses, and glimpses let you choose with your eyes open. But the deck is shuffled before you sit down and most of each hand stays face down. A perfect player can still be dealt a deep day. A blind draw can still turn up The Sun.</p>
     <p>Your reading shows both parts: <b>Insight</b> is what you earned, <b>Fortune</b> is what the deck gave. It also shows every reading the deck could have dealt, so you can see how lucky you were.</p>
     <h3 class="mini-h">Patterns</h3>
     <p>The three cards are read together, the way a reader would. Cards in your sign&rsquo;s suit shine one step brighter. Your sign&rsquo;s own Major Arcana card, three of one suit, a repeated number, a run of numbers or three Major Arcana all add to your fortune.</p>
+    <h3 class="mini-h">Keyboard</h3>
+    <p>Press 1 to 4 to answer a question and 1 to 5 to pick a card. Enter confirms.</p>
   </div>
 </dialog>
 

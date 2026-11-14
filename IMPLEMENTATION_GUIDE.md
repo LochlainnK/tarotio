@@ -24,6 +24,10 @@ Before each hand the player answers a tarot or astrology question. A right answe
 So knowledge improves the odds, but most of every hand stays face down, and the deck was
 shuffled before the player sat down.
 
+Every hand also shows a **tell**: how many of its five cards are bright, without saying
+which. The tell updates as cards are turned over, so the player always knows the odds of
+an unseen card before keeping it.
+
 The result screen always shows two separate things:
 
 - **Insight** (0 to 6): what the player earned. This is skill.
@@ -65,6 +69,14 @@ These are the product. Every change you make is checked against them.
 7. **Sharing is spoiler-free.** The share text uses emoji only and never names a card,
    because everyone with the same sign has the same deck.
 8. **The game works with no network after load, no account, and no tracking by default.**
+9. **Always show the odds.** The tell stays on screen for the whole hand, and the result
+   records the odds of every card that was kept unseen ("left to fate at 2 in 5"). Luck the
+   player can count is luck the player can believe.
+10. **The cards must not move while the player is choosing.** During the glimpse, choose
+    and reveal phases the reader's panel sits below the hand, so changing text never
+    shifts a card under a finger. Keep it that way.
+11. **A damaged save must never lock a player out.** Saved state is validated on load
+    (`validGame` in `js/app.js`); anything out of range is dropped and the day starts clean.
 
 ---
 
@@ -129,6 +141,12 @@ npm start
 
 ### 4.3 One round (repeated three times)
 
+The tell is visible in every phase. With no cards seen it reads "3 of these five cards
+are bright. Picked blind, the odds of a bright card are 3 in 5." Once cards are seen it
+adds "Still face down: 3 cards, 2 of them bright." A card is bright at brightness 4 or 5
+(`CONFIG.BRIGHT_FROM`). `handTell(hand, seen)` computes it. A fair hand always has at
+least one bright card, so the tell is never zero at the deal.
+
 | Phase | What happens |
 |---|---|
 | `question` | Four-option question. Easy for the Past, medium for the Present, hard for the Future. |
@@ -142,6 +160,12 @@ How a card was chosen (`howChosen`) is recorded as one of:
 - `sight`: the kept card had been glimpsed first.
 - `gamble`: the player had glimpsed other cards and kept an unseen one.
 - `fate`: the player had no glimpses.
+
+For `gamble` and `fate`, the odds at the moment of choosing (bright cards still face down,
+out of cards still face down) are shown on the reveal and again in the result.
+
+Keyboard: 1 to 4 (or A to D) answer a question, 1 to 5 turn or pick up a card, Enter
+confirms. After each action focus moves to the next control.
 
 ### 4.4 Brightness
 
@@ -195,6 +219,10 @@ engine scores all 125 and reports how many fall in each tier, what share of them
 player's reading beats, and the chance that a blind draw reaches the player's tier or
 higher. This is the honest measure of luck. Do not replace it with an estimate.
 
+The result also counts what happened to the cards kept unseen ("2 of your 3 unseen picks
+came up bright"). If a player earned glimpses and then gambled on unseen cards twice or
+more, the verdict treats the result as the deck's doing, whatever their insight.
+
 ### 4.8 Questions (`questionsFor`)
 
 Three pools, one per difficulty tier. Lore questions come from `js/trivia.js`; the rest
@@ -202,9 +230,14 @@ are generated from the card and sign data, so they teach the same meanings the r
 
 | Tier | Asked for | Pool today | Made of |
 |---|---|---|---|
-| 1 | Past | 52 | lore, "which element is this sign", "which Major Arcana card means these keywords" |
-| 2 | Present | 110 | lore, "which card belongs to this sign", keywords to a Minor card, upright meaning of a Major |
-| 3 | Future | 172 | lore, reversed meanings, Major Arcana numbers, upright meaning of a Minor |
+| 1 | Past | 59 | lore, "which element is this sign", "which Major Arcana card means these keywords" |
+| 2 | Present | 116 | lore, "which card belongs to this sign", keywords to a Minor card, upright meaning of a Major |
+| 3 | Future | 177 | lore, reversed meanings, Major Arcana numbers, upright meaning of a Minor |
+
+Generated questions are built to be reasoned out, not memorised. When the answer is a
+Minor Arcana card, the wrong options come from the three other suits, so knowing what the
+suits stand for (taught in tier 1) is enough. When the answer is a meaning, one wrong
+option is the same card's other orientation and the rest come from other suits.
 
 For day number `d`, each pool is shuffled by a seed for its cycle and the game walks
 through it one question a day. A question cannot repeat until its whole pool has been
@@ -214,15 +247,20 @@ used. Questions depend on the date only, so every sign gets the same three quest
 
 Each reading is assembled from:
 
-- a headline for the tier (4 variants per tier),
+- a headline for the tier (7 variants per tier),
+- the day in one line, built from the first keyword of each card ("From a spark waiting,
+  through rigidity, toward compassion"), which is unique to the spread,
 - for each position, a lead sentence built from the card's keywords (3 variants per
   position) plus that card face's own fortune text (156 unique texts: 78 cards x 2 orientations),
-- a line about which element leads the spread,
+- a line about which element leads the spread (left out when a pattern already says it),
 - every pattern found,
 - the quintessence card: add the three card numbers, reduce the digits until the total
   is 22 or less, and read the Major Arcana card with that number (22 is The Fool),
-- a closing line for the sign and tier,
-- a verdict on skill and luck (3 insight bands x 3 fortune bands x 2 variants).
+- a closing line: one of 3 openers for the sign, then one of 3 closers for the tier,
+- a verdict on skill and luck (3 insight bands x 3 fortune bands x 2 variants),
+- a line on how the unseen picks fell.
+
+The same sentence must never appear twice in one reading. There is a test for it.
 
 Variants are picked with a generator seeded by the seed key and the picks, so the same
 reading always shows the same words.
@@ -253,12 +291,13 @@ orientation are counted, and each reads differently for each of the 12 signs.
 ```js
 { id: 'leo', name: 'Leo', glyph: '♌', dates: 'Jul 23 – Aug 22', element: 'Fire', suit: 'wands',
   modality: 'Fixed', ruler: 'the Sun', card: 'strength',
-  open: 'Leo, the day goes better when you are in it.',
+  opens: ['Leo, the day goes better when you are in it.', 'Leo, your generosity fills a room.', '...'],
   gift: 'your warmth and sense of occasion',
   ease: 'waiting for applause before you believe it went well' }
 ```
 
-`gift` and `ease` are noun phrases that complete "Lean on {gift}" and "go easy on {ease}".
+`opens` holds three opening sentences so a daily player does not read the same one every
+day. `gift` and `ease` are noun phrases that complete "Lean on {gift}" and "go easy on {ease}".
 
 ### Lore question (`js/trivia.js`)
 
@@ -313,10 +352,16 @@ Current output (400 days x 12 signs per player type):
 | Player | Avg insight | New | Crescent | Half | Gibbous | Full |
 |---|---|---|---|---|---|---|
 | No glimpses at all | 0.0 | 10.5% | 23.2% | 45.8% | 15.6% | 4.9% |
-| Pure guesser | 2.3 | 4.2% | 13.9% | 43.3% | 26.4% | 12.2% |
-| Learner (half right) | 3.8 | 1.6% | 7.8% | 37.5% | 33.8% | 19.4% |
-| Regular (three quarters right) | 5.0 | 0.4% | 3.8% | 29.7% | 39.1% | 27.1% |
-| Always two glimpses | 6.0 | 0.2% | 1.9% | 22.0% | 42.6% | 33.3% |
+| Pure guesser | 2.3 | 4.1% | 13.6% | 43.5% | 26.5% | 12.2% |
+| Learner (half right) | 3.8 | 1.7% | 7.6% | 37.3% | 33.7% | 19.6% |
+| Regular (three quarters right) | 5.0 | 0.4% | 3.8% | 29.2% | 39.3% | 27.4% |
+| Always two glimpses | 6.0 | 0.2% | 1.8% | 21.6% | 42.1% | 34.4% |
+
+The simulated players use the tell the way a careful player would: they keep the best
+card they have seen unless the face-down cards are worth more on average.
+
+No sign is luckier than another. Average totals per sign differ by less than 0.4 moons
+over 600 simulated days, which is noise. If you change sign data or bonuses, check this again.
 
 Targets to keep after any change:
 
@@ -335,12 +380,17 @@ Then update the table above.
 
 - Sign picker, remembered between visits.
 - Three rounds with question, second try, glimpses, choose, confirm, full-hand reveal.
-- Mid-game save and resume. A finished daily reopens on its reading.
+- The tell on every hand, with live odds for face-down cards.
+- A layout where the hand never moves while the player is choosing.
+- Keyboard play (number keys and Enter) with focus following the action.
+- Mid-game save and resume, with validation so a damaged save starts the day clean.
+  A finished daily reopens on its reading.
 - Result screen: tier, three-card reading, patterns, quintessence, closing, verdict,
   Insight and Fortune meters, per-card breakdown, chart of the 125 readings.
 - Share to clipboard with a text fallback, spoiler-free.
-- Stats: readings, current streak, best streak, average insight, fortune history,
-  "lucky breaks" and "earned" counts.
+- Stats: readings, current streak, best streak, average insight, the last 14 readings as
+  moons, fortune history, "lucky breaks" and "earned" counts.
+- An inline favicon (a red card back).
 - Countdown to the next deck and a prompt when a new day starts.
 - Practice hands that do not affect stats.
 - Day and night themes, phone layout, keyboard focus states, reduced-motion support.
@@ -381,7 +431,7 @@ Done when: the public URL loads, a full game can be played, and a refresh mid-ga
    "summary_large_image".
 3. Make the share image: 1200 x 630 PNG, five red-backed cards on the green table with
    the wordmark. Save as `og.png` in the root. It must not show any card face.
-4. Add a favicon (`favicon.svg`, a single red card back) and link it.
+4. A favicon is already inline in `index.html`. Replace it only if the owner supplies artwork.
 
 Done when: pasting the URL into a chat app shows the title, description and image, and
 "Copy result to share" ends with the URL.
@@ -476,6 +526,9 @@ Run through this list on a phone and a desktop, in day and night themes:
 - [ ] With "reduce motion" on, cards change without flipping or flying.
 - [ ] With `localStorage` blocked (private window), a game can still be played to the end.
 - [ ] The words in section 6's banned list appear nowhere in the interface.
+- [ ] On a phone, the five cards stay in the same place while turning and choosing them.
+- [ ] The tell is visible in every phase and its counts match the cards.
+- [ ] With the saved state edited to nonsense in dev tools, the page still loads to a clean start.
 
 ---
 
@@ -504,7 +557,10 @@ value, id or number per language: the deck must be the same in every language.
 - Do not add a timer to questions. Time pressure is not part of this game.
 - Do not let a player replay the daily to get a better fortune. Practice hands exist for that.
 - Do not show the brightness of a face-down card anywhere, including in hidden markup,
-  `title` attributes or `aria-label`s.
+  `title` attributes or `aria-label`s. The tell gives a count for the hand and nothing
+  about any single card; keep it that way.
+- Do not animate cards in from the right edge. On a narrow phone that makes the page
+  scroll sideways for a moment. Cards fly in from the upper left.
 - Do not use `Math.random()` in `js/engine.js`.
 - Do not rename card ids or change card numbers. Saved games and seeds depend on them.
 - Do not change the order of the `CARDS` array. The shuffle reads it in order, so

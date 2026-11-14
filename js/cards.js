@@ -437,32 +437,32 @@
 
   // The twelve signs. `card` is the sign's Major Arcana card (Golden Dawn attribution),
   // `suit` is the Minor Arcana suit that shares the sign's element.
-  // `gift` and `ease` are used in the closing lines of a reading.
+  // `opens`, `gift` and `ease` are used in the closing lines of a reading.
   var SIGNS = [
     { id: 'aries', name: 'Aries', glyph: '♈', dates: 'Mar 21 – Apr 19', element: 'Fire', suit: 'wands', modality: 'Cardinal', ruler: 'Mars', card: 'emperor',
-      open: 'Aries, you were born to go first.', gift: 'your nerve and your quick start', ease: 'the urge to rush the ending' },
+      opens: ['Aries, you were born to go first.', 'Aries, you start the things other people only talk about.', 'Aries, your first instinct is usually your best one.'], gift: 'your nerve and your quick start', ease: 'the urge to rush the ending' },
     { id: 'taurus', name: 'Taurus', glyph: '♉', dates: 'Apr 20 – May 20', element: 'Earth', suit: 'pentacles', modality: 'Fixed', ruler: 'Venus', card: 'hierophant',
-      open: 'Taurus, you build things that last.', gift: 'your patience and steady hands', ease: 'digging your heels in' },
+      opens: ['Taurus, you build things that last.', 'Taurus, you know the worth of taking your time.', 'Taurus, steadiness is your quiet kind of power.'], gift: 'your patience and steady hands', ease: 'digging your heels in' },
     { id: 'gemini', name: 'Gemini', glyph: '♊', dates: 'May 21 – Jun 20', element: 'Air', suit: 'swords', modality: 'Mutable', ruler: 'Mercury', card: 'lovers',
-      open: 'Gemini, your mind is a room with every window open.', gift: 'your curiosity and quick tongue', ease: 'chasing every thread at once' },
+      opens: ['Gemini, your mind is a room with every window open.', 'Gemini, you can hold two ideas at once and enjoy both.', 'Gemini, your questions open doors.'], gift: 'your curiosity and quick tongue', ease: 'chasing every thread at once' },
     { id: 'cancer', name: 'Cancer', glyph: '♋', dates: 'Jun 21 – Jul 22', element: 'Water', suit: 'cups', modality: 'Cardinal', ruler: 'the Moon', card: 'chariot',
-      open: 'Cancer, you feel the weather in a room before anyone speaks.', gift: 'your instinct for who needs what', ease: 'retreating into the shell' },
+      opens: ['Cancer, you feel the weather in a room before anyone speaks.', 'Cancer, you make wherever you are feel like home.', 'Cancer, your care is a kind of strength.'], gift: 'your instinct for who needs what', ease: 'retreating into the shell' },
     { id: 'leo', name: 'Leo', glyph: '♌', dates: 'Jul 23 – Aug 22', element: 'Fire', suit: 'wands', modality: 'Fixed', ruler: 'the Sun', card: 'strength',
-      open: 'Leo, the day goes better when you are in it.', gift: 'your warmth and sense of occasion', ease: 'waiting for applause before you believe it went well' },
+      opens: ['Leo, the day goes better when you are in it.', 'Leo, your generosity fills a room.', 'Leo, you were made to be seen, and to see others.'], gift: 'your warmth and sense of occasion', ease: 'waiting for applause before you believe it went well' },
     { id: 'virgo', name: 'Virgo', glyph: '♍', dates: 'Aug 23 – Sep 22', element: 'Earth', suit: 'pentacles', modality: 'Mutable', ruler: 'Mercury', card: 'hermit',
-      open: 'Virgo, you notice what everyone else walks past.', gift: 'your eye for the detail that matters', ease: 'polishing what is already good' },
+      opens: ['Virgo, you notice what everyone else walks past.', 'Virgo, you make things work better just by paying attention.', 'Virgo, your care shows in the details.'], gift: 'your eye for the detail that matters', ease: 'polishing what is already good' },
     { id: 'libra', name: 'Libra', glyph: '♎', dates: 'Sep 23 – Oct 22', element: 'Air', suit: 'swords', modality: 'Cardinal', ruler: 'Venus', card: 'justice',
-      open: 'Libra, you make things fair and you make them beautiful.', gift: 'your sense of balance and grace', ease: 'weighing a choice until it goes stale' },
+      opens: ['Libra, you make things fair and you make them beautiful.', 'Libra, you can see every side, and that is a gift.', 'Libra, harmony follows you into a room.'], gift: 'your sense of balance and grace', ease: 'weighing a choice until it goes stale' },
     { id: 'scorpio', name: 'Scorpio', glyph: '♏', dates: 'Oct 23 – Nov 21', element: 'Water', suit: 'cups', modality: 'Fixed', ruler: 'Pluto', card: 'death',
-      open: 'Scorpio, you see what is under the surface.', gift: 'your depth and unflinching focus', ease: 'holding on tighter than you need to' },
+      opens: ['Scorpio, you see what is under the surface.', 'Scorpio, when you commit, you commit all the way.', 'Scorpio, the deep end is where you swim best.'], gift: 'your depth and unflinching focus', ease: 'holding on tighter than you need to' },
     { id: 'sagittarius', name: 'Sagittarius', glyph: '♐', dates: 'Nov 22 – Dec 21', element: 'Fire', suit: 'wands', modality: 'Mutable', ruler: 'Jupiter', card: 'temperance',
-      open: 'Sagittarius, you aim far and usually land somewhere interesting.', gift: 'your optimism and long aim', ease: 'promising more than one day can hold' },
+      opens: ['Sagittarius, you aim far and usually land somewhere interesting.', 'Sagittarius, your optimism is a compass.', 'Sagittarius, you turn any day into a small adventure.'], gift: 'your optimism and long aim', ease: 'promising more than one day can hold' },
     { id: 'capricorn', name: 'Capricorn', glyph: '♑', dates: 'Dec 22 – Jan 19', element: 'Earth', suit: 'pentacles', modality: 'Cardinal', ruler: 'Saturn', card: 'devil',
-      open: 'Capricorn, you climb what other people only look at.', gift: 'your discipline and long game', ease: 'carrying the whole mountain yourself' },
+      opens: ['Capricorn, you climb what other people only look at.', 'Capricorn, you keep your promises, especially the ones to yourself.', 'Capricorn, patience is how you win.'], gift: 'your discipline and long game', ease: 'carrying the whole mountain yourself' },
     { id: 'aquarius', name: 'Aquarius', glyph: '♒', dates: 'Jan 20 – Feb 18', element: 'Air', suit: 'swords', modality: 'Fixed', ruler: 'Uranus', card: 'star',
-      open: 'Aquarius, you think ten years ahead of the room.', gift: 'your originality and wide view', ease: 'watching your own life from a distance' },
+      opens: ['Aquarius, you think ten years ahead of the room.', 'Aquarius, you see how things could be, and that matters.', 'Aquarius, your difference is your gift.'], gift: 'your originality and wide view', ease: 'watching your own life from a distance' },
     { id: 'pisces', name: 'Pisces', glyph: '♓', dates: 'Feb 19 – Mar 20', element: 'Water', suit: 'cups', modality: 'Mutable', ruler: 'Neptune', card: 'moon',
-      open: 'Pisces, you swim in currents other people cannot feel.', gift: 'your imagination and soft heart', ease: 'soaking up everyone else\'s mood' }
+      opens: ['Pisces, you swim in currents other people cannot feel.', 'Pisces, your imagination is a real place, and a useful one.', 'Pisces, you understand people without being told.'], gift: 'your imagination and soft heart', ease: 'soaking up everyone else\'s mood' }
   ];
   var SIGN_BY_ID = {};
   SIGNS.forEach(function (s) { SIGN_BY_ID[s.id] = s; });

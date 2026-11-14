@@ -35,7 +35,9 @@ test('every sign has a card, a suit and closing lines', () => {
   for (const s of D.SIGNS) {
     assert.equal(D.CARD_BY_ID[s.card].arcana, 'major');
     assert.equal(D.SUITS[s.suit].element, s.element);
-    assert.ok(s.open && s.gift && s.ease);
+    assert.equal(s.opens.length, 3);
+    assert.equal(new Set(s.opens).size, 3);
+    assert.ok(s.gift && s.ease);
   }
 });
 
@@ -131,6 +133,51 @@ test('patterns add the documented bonuses', () => {
   assert.equal(bonus([up('c02'), up('s09'), up('p05')], 'leo'), 0);
 });
 
+test('the tell counts bright cards without saying which', () => {
+  for (const date of days(20)) {
+    const hand = E.dealHands(E.dailySeed(date, 'virgo'))[0];
+    const bright = hand.filter(c => E.auspice(c) >= E.CONFIG.BRIGHT_FROM).length;
+    const open = E.handTell(hand, []);
+    assert.deepEqual(open, { size: 5, bright, unseen: 5, unseenBright: bright });
+    assert.ok(open.bright >= 1, 'a fair hand always holds a bright card');
+    const seen = [0, 3];
+    const t = E.handTell(hand, seen);
+    assert.equal(t.unseen, 3);
+    assert.equal(t.unseenBright, bright - seen.filter(i => E.isBright(hand[i])).length);
+  }
+});
+
+test('questions about a Minor card can be reasoned out from the suits', () => {
+  const rng = E.rngFrom('suit-logic');
+  for (const card of D.CARDS.filter(c => c.arcana === 'minor')) {
+    const q = E.materialize({ kind: 'whichCard', card: card.id }, rng);
+    const suits = q.options.map(name => D.CARDS.find(c => c.name === name).suit);
+    assert.equal(new Set(suits).size, 4, 'one option per suit for ' + card.name);
+  }
+});
+
+test('the reading never says the same thing twice', () => {
+  for (const date of days(30)) for (const sign of SIGN_IDS) for (let p = 0; p < 5; p++) {
+    const rounds = [0, 1, 2].map(r => ({ glimpses: 0, seen: [], pick: (p + r) % 5 }));
+    const sum = E.summarize(game(date, sign, rounds));
+    const lines = [sum.blend, ...sum.score.patterns.map(x => x.text)].filter(Boolean);
+    assert.equal(new Set(lines).size, lines.length, lines.join(' | '));
+    for (const pat of sum.score.patterns) assert.ok(pat.bonus > 0 || pat.id === 'upright' || pat.id === 'reversed');
+  }
+});
+
+test('odds are recorded for every card kept unseen, and only those', () => {
+  const g = game('2026-11-14', 'leo', [
+    { glimpses: 2, seen: [1, 2], pick: 1 }, { glimpses: 1, seen: [1], pick: 4 }, { glimpses: 0, seen: [], pick: 4 }]);
+  const sum = E.summarize(g);
+  assert.equal(sum.positions[0].odds, null);
+  assert.equal(sum.positions[1].odds.of, 4);
+  assert.equal(sum.positions[2].odds.of, 5);
+  assert.equal(sum.unseenPicks, 2);
+  assert.ok(sum.unseenHits <= 2);
+  assert.match(sum.arc, /^From .+, through .+, toward .+\.$/);
+});
+
 test('tiers follow the thresholds', () => {
   assert.equal(E.tierFor(3), 1);
   assert.equal(E.tierFor(7), 1);
@@ -166,7 +213,7 @@ test('a finished game summarises into a complete, clean reading', () => {
       for (let p = 0; p < 5; p++) {
         const rounds = [0, 1, 2].map(r => ({ glimpses: (p + r) % 3, seen: (p + r) % 3 ? [p] : [], pick: (p + r) % 5 }));
         const sum = E.summarize(game(date, sign, rounds));
-        const text = [sum.headline, sum.blend, sum.closing, sum.verdict, sum.quintessence.text,
+        const text = [sum.headline, sum.arc, sum.blend || '', sum.closing, sum.verdict, sum.luckLine, sum.quintessence.text,
           ...sum.positions.map(x => x.lead + x.text), ...sum.score.patterns.map(x => x.title + x.text)].join(' ');
         assert.ok(!bad.test(text), text);
         assert.equal(sum.positions.length, 3);
@@ -187,7 +234,7 @@ test('reading text never puts the player down', () => {
   for (const date of days(6)) for (const sign of SIGN_IDS) {
     const rounds = [0, 1, 2].map(r => ({ glimpses: 0, seen: [], pick: r }));
     const sum = E.summarize(game(date, sign, rounds));
-    all.push(sum.verdict, sum.closing, sum.blend);
+    all.push(sum.verdict, sum.closing, sum.blend || '', sum.luckLine, sum.arc);
   }
   // "The worst is behind you" is reassurance, so that phrase is allowed.
   for (const s of all) assert.ok(!banned.test(s.replace(/the worst (is )?behind you/i, '')), 'put-down wording: ' + s);

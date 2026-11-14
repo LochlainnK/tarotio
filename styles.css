@@ -545,6 +545,27 @@ b { font-weight: 700; }
 .chip svg { width: 1.05rem; height: 1.05rem; }
 .chip.is-spent { background: transparent; color: var(--chalk-dim); border-color: var(--chalk-dim); box-shadow: none; }
 
+.tell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.6rem;
+  width: 100%;
+  max-width: 620px;
+  margin-inline: auto;
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+}
+.tell-k {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+.tell-note { color: var(--chalk-dim); }
+.scale { font-family: var(--font-ui); font-size: var(--t-sm); color: var(--chalk-dim); font-variant-numeric: tabular-nums; }
+
 .hand {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -568,8 +589,15 @@ b { font-weight: 700; }
 .plus { color: var(--accent-text); }
 .hand.is-dealing .pcard { animation: deal 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: calc(var(--i) * 70ms); }
 .hand.is-reveal .pc-flip { transition-delay: calc(var(--i) * 60ms); }
+.reading .trio-item { animation: settle 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: calc(var(--i) * 140ms); }
+@keyframes settle {
+  from { opacity: 0.35; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+/* Cards fly in from the upper left. Flying in from the right would push the last card
+   past the screen edge and make a narrow phone scroll sideways for a moment. */
 @keyframes deal {
-  from { opacity: 0; transform: translate(60px, -46px) rotate(9deg); }
+  from { opacity: 0; transform: translate(-56px, -46px) rotate(-9deg); }
   to { opacity: 1; transform: none; }
 }
 
@@ -634,6 +662,10 @@ b { font-weight: 700; }
   vertical-align: middle;
 }
 .fortune-line { font-size: var(--t-lg); line-height: 1.3; font-style: italic; max-width: 30em; }
+.fortune-arc { font-family: var(--font-ui); font-size: var(--t-md); color: var(--chalk-dim); max-width: 34em; }
+.facts { display: flex; flex-wrap: wrap; gap: 0.4rem; font-family: var(--font-ui); font-size: var(--t-sm); }
+.facts li { padding: 0.25rem 0.7rem; border: 1.5px solid var(--rail); border-radius: 999px; }
+.facts b { font-variant-numeric: tabular-nums; }
 
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; }
 .trio-item { display: grid; gap: 0.8rem; align-content: start; min-width: 0; }
@@ -657,6 +689,7 @@ b { font-weight: 700; }
   font-size: var(--t-xs);
   font-variant-numeric: tabular-nums;
 }
+.quint { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 1rem; align-items: start; max-width: 40em; }
 .closing { font-size: var(--t-lg); line-height: 1.35; }
 
 .verdict { font-size: var(--t-lg); line-height: 1.35; }
@@ -709,7 +742,7 @@ b { font-weight: 700; }
 }
 .odds-label { display: flex; align-items: center; gap: 0.4rem; }
 .odds-track { height: 0.7rem; }
-.odds-bar { display: block; height: 100%; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--chalk-dim); }
+.odds-bar { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--chalk-dim); }
 .odds-row.is-yours .odds-bar { background: var(--sun); }
 .odds-row.is-yours .odds-label, .odds-row.is-yours .odds-n { font-weight: 700; color: var(--chalk); }
 .odds-n { font-variant-numeric: tabular-nums; color: var(--chalk-dim); white-space: nowrap; }
@@ -762,6 +795,10 @@ b { font-weight: 700; }
 .legend-row { display: flex; align-items: center; gap: 0.5rem; }
 .legend-row span { color: var(--chalk-dim); }
 
+.recent { display: flex; flex-wrap: wrap; gap: 0.5rem 0.6rem; }
+.recent li { display: grid; justify-items: center; gap: 0.1rem; font-family: var(--font-ui); font-size: var(--t-xs); color: var(--chalk-dim); font-variant-numeric: tabular-nums; }
+.recent .moon { width: 1.5rem; height: 1.5rem; }
+
 .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
 .tile { display: grid; gap: 0.1rem; }
 .tile-v { font-family: var(--font-title); font-size: var(--t-xl); line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -810,5 +847,6 @@ b { font-weight: 700; }
 @media (prefers-reduced-motion: reduce) {
   .pc-flip, .pcard.is-live, .pcard.is-dim { transition: none; }
   .hand.is-dealing .pcard { animation: none; }
+  .reading .trio-item { animation: none; }
   .hand.is-reveal .pc-flip { transition-delay: 0s; }
 }

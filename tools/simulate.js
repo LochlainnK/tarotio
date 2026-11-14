@@ -10,7 +10,7 @@
  *   - nobody is guaranteed anything: the best player still lands on every tier
  */
 const E = require('../js/engine.js');
-const { SIGNS } = require('../js/cards.js');
+const { SIGNS, CARDS } = require('../js/cards.js');
 
 const DAYS = Number(process.argv[2]) || 400;
 
@@ -25,18 +25,20 @@ const PLAYERS = [
 
 function mean(a) { return a.reduce((s, x) => s + x, 0) / a.length; }
 
-// Average worth of a random card to a random sign: what an unseen card is worth on average.
-function unseenAverage() {
-  const xs = [];
-  for (let d = 0; d < 60; d++) {
-    for (const s of SIGNS) {
-      const hands = E.dealHands(`avg-${d}|${s.id}`);
-      hands.forEach(h => h.forEach(c => xs.push(E.worth(c, s.id))));
+// What an unseen card is worth on average, split by what the tell reveals:
+// a bright card (Gibbous or Full) versus any other, weighted by how often cards land reversed.
+function faceAverages() {
+  const bright = [], other = [];
+  for (const c of CARDS) {
+    for (const [f, w] of [[c.up, 1 - E.CONFIG.REVERSED_CHANCE], [c.rev, E.CONFIG.REVERSED_CHANCE]]) {
+      (f.a >= E.CONFIG.BRIGHT_FROM ? bright : other).push([f.a, w]);
     }
   }
-  return mean(xs);
+  const avg = xs => xs.reduce((s, x) => s + x[0] * x[1], 0) / xs.reduce((s, x) => s + x[1], 0);
+  return { bright: avg(bright), other: avg(other) };
 }
-const UNSEEN = unseenAverage();
+const FACE = faceAverages();
+const SIGN_EXTRA = 0.2;   // average lift from attunement and the sign's own card
 
 function playGame(seedKey, signId, player, rng) {
   const hands = E.dealHands(seedKey);
@@ -48,14 +50,18 @@ function playGame(seedKey, signId, player, rng) {
     const seen = order.slice(0, glimpses);
     let pick;
     const best = seen.slice().sort((a, b) => E.worth(hand[b], signId) - E.worth(hand[a], signId))[0];
-    if (best !== undefined && E.worth(hand[best], signId) > UNSEEN) pick = best;   // keep what you saw
-    else pick = order[glimpses];                                                   // gamble on an unseen card
+    // The tell says how many face-down cards are bright, so an informed player can price the gamble.
+    const tell = E.handTell(hand, seen);
+    const chance = tell.unseenBright / tell.unseen;
+    const unseenWorth = chance * FACE.bright + (1 - chance) * FACE.other + SIGN_EXTRA;
+    if (best !== undefined && E.worth(hand[best], signId) >= unseenWorth) pick = best;   // keep what you saw
+    else pick = order[glimpses];                                                         // gamble on an unseen card
     return { glimpses, seen, pick };
   });
   return E.summarize({ mode: 'practice', date: '2026-11-14', sign: signId, seedKey, rounds }, hands);
 }
 
-console.log(`Average worth of an unseen card: ${UNSEEN.toFixed(2)} moons`);
+console.log(`Average bright card: ${FACE.bright.toFixed(2)} moons. Average other card: ${FACE.other.toFixed(2)} moons.`);
 console.log(`Simulating ${DAYS} days x ${SIGNS.length} signs per player\n`);
 console.log('Player'.padEnd(28), 'insight', ' total', '  New  Cres  Half  Gibb  Full', '  by sight');
 
