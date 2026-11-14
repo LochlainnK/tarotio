@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tarotio</title>
+<meta name="description" content="A daily three-card tarot game for your star sign. Answer the reader's questions, earn a glimpse of the face-down cards, and keep one from each hand.">
+<meta name="theme-color" content="#163b34">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;1,400&family=Alegreya+Sans:wght@400;500;700&family=Macondo&family=Macondo+Swash+Caps&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Symbols&text=%E2%98%89%E2%98%BD%E2%98%BF%E2%99%80%E2%99%82%E2%99%83%E2%99%84%E2%99%85%E2%99%86%E2%99%87%E2%99%88%E2%99%89%E2%99%8A%E2%99%8B%E2%99%8C%E2%99%8D%E2%99%8E%E2%99%8F%E2%99%90%E2%99%91%E2%99%92%E2%99%93&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Suit and UI icons, referenced with <use href="#id"> -->
+<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <symbol id="suit-wands" viewBox="0 0 24 24">
+    <rect x="10.6" y="2.5" width="2.8" height="19" rx="1.4" fill="currentColor"/>
+    <path d="M13.4 9.5c3.4-.6 5-2.8 5.2-5-2.6.1-4.9 1.7-5.2 5z" fill="currentColor"/>
+    <path d="M10.6 14.5c-3.4-.6-5-2.8-5.2-5 2.6.1 4.9 1.7 5.2 5z" fill="currentColor"/>
+  </symbol>
+  <symbol id="suit-cups" viewBox="0 0 24 24">
+    <path d="M5 3.5h14v4.2a7 7 0 0 1-5.6 6.9v3.9H17a1 1 0 0 1 1 1v1H6v-1a1 1 0 0 1 1-1h3.6v-3.9A7 7 0 0 1 5 7.7z" fill="currentColor"/>
+  </symbol>
+  <symbol id="suit-swords" viewBox="0 0 24 24">
+    <path d="M12 1.5l2.2 4.2V15H9.8V5.7z" fill="currentColor"/>
+    <rect x="6.5" y="15" width="11" height="2.2" rx="1.1" fill="currentColor"/>
+    <rect x="10.9" y="17.2" width="2.2" height="3.4" fill="currentColor"/>
+    <circle cx="12" cy="21.3" r="1.5" fill="currentColor"/>
+  </symbol>
+  <symbol id="suit-pentacles" viewBox="0 0 24 24">
+    <path fill-rule="evenodd" d="M12 1.5a10.5 10.5 0 1 0 0 21 10.5 10.5 0 0 0 0-21zm0 2.2a8.3 8.3 0 1 1 0 16.6 8.3 8.3 0 0 1 0-16.6z" fill="currentColor"/>
+    <path d="M12 5.6l1.56 4.26 4.53.17-3.56 2.8 1.24 4.36L12 14.67l-3.77 2.52 1.24-4.36-3.56-2.8 4.53-.17z" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24">
+    <path fill-rule="evenodd" d="M12 5C6.5 5 2.5 9.4 1.5 12c1 2.6 5 7 10.5 7s9.5-4.4 10.5-7C21.5 9.4 17.5 5 12 5zm0 11.2a4.2 4.2 0 1 1 0-8.4 4.2 4.2 0 0 1 0 8.4zm0-2.2a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<div class="table">
+
+  <header class="masthead">
+    <div class="brand">
+      <h1 class="wordmark">Tarotio</h1>
+      <p class="dayline" id="dayline">A daily reading for your sign</p>
+    </div>
+    <nav class="nav" aria-label="Game">
+      <button type="button" class="nav-btn" id="btn-sign">Choose sign</button>
+      <button type="button" class="nav-btn" id="btn-help">How to play</button>
+      <button type="button" class="nav-btn" id="btn-stats">Stats</button>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <!-- 1. Intro: pick a sign, deal the day -->
+    <section id="view-intro" class="view intro">
+      <div class="intro-copy">
+        <h2 class="intro-title">One reading a day, dealt for your sign.</h2>
+        <p class="intro-lead">Three hands of five cards, face down. Answer the reader&rsquo;s question to earn a glimpse, then keep one card from each hand. The three you keep become your fortune for today.</p>
+        <div class="fan" aria-hidden="true">
+          <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
+          <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
+          <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
+          <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
+          <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
+        </div>
+        <ol class="steps">
+          <li><span><b>Answer.</b> Right first time earns two glimpses. Right on the second try earns one.</span></li>
+          <li><span><b>Glimpse.</b> Each glimpse turns one face-down card face up.</span></li>
+          <li><span><b>Keep.</b> Choose any card, seen or unseen. Skill opens your eyes. The deck still decides what was dealt.</span></li>
+        </ol>
+      </div>
+      <div class="intro-sign">
+        <h3 class="sec-h" id="sign-heading">Choose your sign</h3>
+        <div class="sign-grid" id="intro-signs" role="radiogroup" aria-labelledby="sign-heading"></div>
+        <p class="sign-note" id="sign-note">Your sign sets your deck, your own Major Arcana card, and the suit that shines brighter for you.</p>
+        <div class="intro-actions">
+          <button type="button" class="btn primary" id="btn-deal" disabled>Choose a sign to deal</button>
+          <button type="button" class="btn ghost" id="btn-practice-intro" disabled>Try a practice hand first</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Play: three hands, one card kept from each -->
+    <section id="view-play" class="view play" hidden>
+      <div class="spread" id="spread" role="group" aria-label="Your spread so far"></div>
+      <div class="reader" id="reader" aria-live="polite"></div>
+      <div class="hand" id="hand" role="group" aria-label="This hand of five cards"></div>
+      <div class="seen-wrap" id="seen-wrap" hidden>
+        <h3 class="mini-h" id="seen-h">What you have seen</h3>
+        <ul class="seen" id="seen"></ul>
+      </div>
+    </section>
+
+    <!-- 3. Reading: the three cards read together, then skill and luck side by side -->
+    <section id="view-reading" class="view reading" hidden></section>
+
+  </main>
+
+  <footer class="foot">
+    <p>Tarotio is a game for reflection and fun. The cards follow traditional Rider-Waite-Smith meanings. They are a mirror for your day, and your choices stay your own.</p>
+  </footer>
+</div>
+
+<dialog id="dlg-help" class="sheet" aria-labelledby="help-h">
+  <div class="sheet-head">
+    <h2 class="sheet-title" id="help-h">How to play</h2>
+    <button type="button" class="nav-btn" data-close>Close</button>
+  </div>
+  <div class="sheet-body">
+    <p>Each day one deck is shuffled for every star sign. It deals you three hands of five cards, face down. You keep one card from each hand: your <b>Past</b>, <b>Present</b> and <b>Future</b>.</p>
+    <ol class="steps">
+      <li><span><b>Answer</b> the reader&rsquo;s question. Right first time earns two glimpses. Right on the second try earns one. The questions grow harder from Past to Future.</span></li>
+      <li><span><b>Glimpse.</b> Spend each glimpse to turn one card face up and see how brightly it shines today.</span></li>
+      <li><span><b>Keep</b> one card. Keep a card you have seen, or gamble on one you have not.</span></li>
+    </ol>
+    <h3 class="mini-h">The moons</h3>
+    <p>Every card has a brightness for the day, from New Moon to Full Moon. It comes from the card&rsquo;s traditional meaning and whether it lands upright or reversed. A reversed card is often dimmer, but the hardest cards turn kinder when reversed.</p>
+    <div class="legend" id="moon-legend"></div>
+    <p>No card is bad. New-moon cards are the ones that ask something of you.</p>
+    <h3 class="mini-h">Skill and luck</h3>
+    <p>Your answers earn glimpses, and glimpses let you choose with your eyes open. But the deck is shuffled before you sit down and most of each hand stays face down. A perfect player can still be dealt a deep day. A blind draw can still turn up The Sun.</p>
+    <p>Your reading shows both parts: <b>Insight</b> is what you earned, <b>Fortune</b> is what the deck gave. It also shows every reading the deck could have dealt, so you can see how lucky you were.</p>
+    <h3 class="mini-h">Patterns</h3>
+    <p>The three cards are read together, the way a reader would. Cards in your sign&rsquo;s suit shine one step brighter. Your sign&rsquo;s own Major Arcana card, three of one suit, a repeated number, a run of numbers or three Major Arcana all add to your fortune.</p>
+  </div>
+</dialog>
+
+<dialog id="dlg-stats" class="sheet" aria-labelledby="stats-h">
+  <div class="sheet-head">
+    <h2 class="sheet-title" id="stats-h">Your readings</h2>
+    <button type="button" class="nav-btn" data-close>Close</button>
+  </div>
+  <div class="sheet-body" id="stats-body"></div>
+</dialog>
+
+<dialog id="dlg-sign" class="sheet" aria-labelledby="dlg-sign-h">
+  <div class="sheet-head">
+    <h2 class="sheet-title" id="dlg-sign-h">Your sign</h2>
+    <button type="button" class="nav-btn" data-close>Close</button>
+  </div>
+  <div class="sheet-body">
+    <div class="sign-grid" id="dlg-signs" role="radiogroup" aria-labelledby="dlg-sign-h"></div>
+    <p class="sign-note" id="dlg-sign-note"></p>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<noscript><p class="noscript">Tarotio needs JavaScript to shuffle the deck.</p></noscript>
+
+<script src="js/cards.js"></script>
+<script src="js/trivia.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

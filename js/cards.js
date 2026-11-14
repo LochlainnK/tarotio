@@ -1,0 +1,476 @@
+/*
+ * Tarotio card data: the 78-card deck, the four suits, and the twelve signs.
+ *
+ * Meanings follow the Rider-Waite-Smith tradition. Every card has two faces:
+ *   up  = dealt upright
+ *   rev = dealt reversed (upside down)
+ * and each face has:
+ *   a = "auspice", how bright the card is for the day, 1 (New Moon) to 5 (Full Moon)
+ *   k = three keywords, written as noun phrases so they can sit inside a sentence
+ *   t = the fortune text shown in the reading
+ *
+ * Tone rule for every string in this file: no card is "bad". Hard cards are
+ * written as something the day asks of you, never as a judgement of the player.
+ *
+ * Works as a browser global (window.TarotioCards) and as a Node module.
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.TarotioCards = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  var SUITS = {
+    wands: {
+      name: 'Wands', element: 'Fire', domain: 'drive, courage and action',
+      lead: 'Fire leads the spread, so act. Momentum is on your side today.',
+      trine: 'Three Wands. The whole spread is fire: appetite, nerve and momentum run through the entire day.'
+    },
+    cups: {
+      name: 'Cups', element: 'Water', domain: 'feeling, closeness and intuition',
+      lead: 'Water leads the spread, so feel first. People matter more than plans today.',
+      trine: 'Three Cups. The whole spread is water: the day belongs to feeling, closeness and the people you love.'
+    },
+    swords: {
+      name: 'Swords', element: 'Air', domain: 'thought, truth and plain speaking',
+      lead: 'Air leads the spread, so think it through and say it clearly.',
+      trine: 'Three Swords. The whole spread is air: the day is won in the mind, with clear words and honest thinking.'
+    },
+    pentacles: {
+      name: 'Pentacles', element: 'Earth', domain: 'work, money, body and home',
+      lead: 'Earth leads the spread, so keep it practical. Small solid steps pay today.',
+      trine: 'Three Pentacles. The whole spread is earth: the day rewards patience, craft and looking after what you have.'
+    }
+  };
+
+  // Brightness scale used for single cards and for whole readings.
+  var MOONS = [
+    null,
+    { name: 'New Moon', word: 'deep', emoji: '🌑' },
+    { name: 'Crescent Moon', word: 'quiet', emoji: '🌒' },
+    { name: 'Half Moon', word: 'steady', emoji: '🌓' },
+    { name: 'Gibbous Moon', word: 'bright', emoji: '🌔' },
+    { name: 'Full Moon', word: 'radiant', emoji: '🌕' }
+  ];
+
+  // Major Arcana rows:
+  // [number, id, name, glyph, linked planet/sign, up.a, up.k, up.t, rev.a, rev.k, rev.t]
+  // Glyphs are the Golden Dawn astrological attributions.
+  var MAJORS = [
+    [0, 'fool', 'The Fool', '♅', 'Uranus',
+      4, 'fresh starts, trust, a leap of faith',
+      'Something new wants you before you feel ready. Take the first step lightly; you can learn the path while walking it.',
+      2, 'hesitation, loose footing, a leap postponed',
+      'A leap is asking for one more look before you make it. Check the ground, then go when it feels honest.'],
+    [1, 'magician', 'The Magician', '☿', 'Mercury',
+      5, 'skill, focus, making it real',
+      'Everything you need is already on the table. Pick one intention and act on it; today your effort lands where you aim it.',
+      2, 'scattered talent, mixed signals, untapped skill',
+      'You have more ability than you are using. Gather your attention into one place and say only what you mean.'],
+    [2, 'priestess', 'The High Priestess', '☽', 'the Moon',
+      4, 'intuition, quiet knowing, hidden depth',
+      'You already know more than you can explain. Go quietly, listen under the noise, and trust the answer that arrives without arguing.',
+      2, 'muffled intuition, surface noise, secrets kept',
+      'Your inner voice is being talked over. Step out of the noise for ten minutes and ask what you actually think.'],
+    [3, 'empress', 'The Empress', '♀', 'Venus',
+      5, 'abundance, comfort, creative growth',
+      'Things grow when you tend them today. Feed yourself well, make something with your hands, and let good things take their time.',
+      2, 'neglected needs, creative drought, over-giving',
+      'You have been watering every garden but your own. Give yourself one real comfort today and the creativity follows.'],
+    [4, 'emperor', 'The Emperor', '♈', 'Aries',
+      4, 'structure, authority, steady ground',
+      'A clear plan beats a clever one today. Set the boundary, make the decision, and stand calmly behind it.',
+      2, 'rigidity, power struggles, a grip held too tight',
+      'Control is costing more than it gives. Loosen one rule you no longer need and see what steadies on its own.'],
+    [5, 'hierophant', 'The Hierophant', '♉', 'Taurus',
+      3, 'tradition, teaching, shared wisdom',
+      'Someone has solved this before you. Ask the mentor, follow the tested method, and let good advice save you time.',
+      3, 'your own rules, fresh thinking, quiet rebellion',
+      'The usual way does not fit you today, and that is allowed. Keep what is wise, drop what is only habit, and do it your way.'],
+    [6, 'lovers', 'The Lovers', '♊', 'Gemini',
+      5, 'love, alignment, a choice from the heart',
+      'What you value and what you choose can match today. Say the warm thing out loud and pick the option you would be proud of.',
+      2, 'mixed feelings, misalignment, a choice avoided',
+      'Part of you wants one thing and part another. Be honest about the split before promising anything to anyone.'],
+    [7, 'chariot', 'The Chariot', '♋', 'Cancer',
+      4, 'willpower, momentum, victory through focus',
+      'Point yourself at one goal and keep the reins steady. Today determination outruns talent, and you have plenty of both.',
+      2, 'scattered drive, stalled wheels, pulling two ways',
+      'You are pushing hard without a heading. Stop, choose a direction, and the momentum comes back on its own.'],
+    [8, 'strength', 'Strength', '♌', 'Leo',
+      5, 'courage, patience, gentle power',
+      'Soft hands tame the lion today. Meet whatever roars with calm and you will find you were the stronger one all along.',
+      2, 'self-doubt, frayed patience, courage in hiding',
+      'Your strength has not left; it is tired. Be as kind to yourself as you would be to a friend, and it returns.'],
+    [9, 'hermit', 'The Hermit', '♍', 'Virgo',
+      3, 'solitude, reflection, an inner lamp',
+      'Answers come in the quiet today. Step back from the crowd for a while; your own light is enough to see by.',
+      2, 'too much time alone, withdrawal, a lamp kept hidden',
+      'Solitude has done its work and is tipping into hiding. Send one message, accept one invitation, let someone in.'],
+    [10, 'wheel', 'Wheel of Fortune', '♃', 'Jupiter',
+      5, 'luck, a turning point, timing on your side',
+      'The wheel turns in your favour. Say yes to the lucky accident, the chance meeting, the door that opens by itself.',
+      2, 'a slow turn, resistance to change, luck still on its way',
+      'The wheel is mid-turn, so do not judge the day by its start. Stay loose; what is rising has not reached you yet.'],
+    [11, 'justice', 'Justice', '♎', 'Libra',
+      4, 'fairness, truth, clear consequences',
+      'What is fair wins today. Tell the truth plainly, weigh both sides, and trust that honest choices come back to you kindly.',
+      2, 'imbalance, excuses, something left unsettled',
+      'Something is not sitting level. Own your share without beating yourself up, and the scales start to move.'],
+    [12, 'hanged', 'The Hanged Man', '♆', 'Neptune',
+      3, 'a pause, surrender, a new angle',
+      'Some knots are not solved by pulling. Wait on purpose today; the view from upside down shows what effort was hiding.',
+      2, 'stalling, restlessness, a delay outgrown',
+      'The pause has taught what it can. Stop waiting for the perfect moment and make one small move.'],
+    [13, 'death', 'Death', '♏', 'Scorpio',
+      2, 'an ending, transformation, cleared space',
+      'Something has finished, and that makes room. Let it go with thanks; what comes next cannot arrive until the doorway is clear.',
+      2, 'resistance to change, lingering, a chapter held open',
+      'You are holding a door that wants to close. Loosen your grip a little today; change is gentler when you walk with it.'],
+    [14, 'temperance', 'Temperance', '♐', 'Sagittarius',
+      4, 'balance, patience, the right blend',
+      'A little of each beats a lot of one. Mix work with rest and honesty with kindness, and the day finds its rhythm.',
+      2, 'excess, impatience, a mix out of tune',
+      'Something is running too hot or too cold. Adjust one dial, whether sleep, pace or screen time, and the rest follows.'],
+    [15, 'devil', 'The Devil', '♑', 'Capricorn',
+      1, 'attachment, temptation, a chain you can lift',
+      'A habit or worry has more say today than it deserves. Notice where you feel hooked; the chain is looser than it looks.',
+      4, 'release, a broken pattern, reclaimed power',
+      'A grip is loosening. Walk away from the thing that has been owning your attention; today freedom is one small no away.'],
+    [16, 'tower', 'The Tower', '♂', 'Mars',
+      1, 'sudden change, revelation, a shaky structure falling',
+      'Something that was not built to last may give way. Let it; what is true is left standing, and you get to rebuild on it.',
+      3, 'a shake-up softened, change by choice, a near miss',
+      'You get to make the change before it makes you. Mend the crack you have noticed and the big jolt never needs to come.'],
+    [17, 'star', 'The Star', '♒', 'Aquarius',
+      5, 'hope, healing, calm after the storm',
+      'The worst is behind you and the sky is clear. Rest, refill, and let yourself believe in something good again.',
+      2, 'dimmed hope, tired faith, a star behind cloud',
+      'Hope is quiet today, and it is still there. Do one small thing that used to make you feel like yourself.'],
+    [18, 'moon', 'The Moon', '♓', 'Pisces',
+      2, 'uncertainty, dreams, things half-seen',
+      'Things may not be as they look in this light. Hold off deciding on a fear; wait for morning and walk slowly until then.',
+      3, 'lifting fog, fears named, truth surfacing',
+      'The confusion is thinning. What scared you in the dark turns out smaller in daylight; trust what is becoming clear.'],
+    [19, 'sun', 'The Sun', '☉', 'the Sun',
+      5, 'joy, vitality, success',
+      'Whatever you touch warms up today. Be visible, be generous, and let simple things be enough to make you glad.',
+      3, 'muted joy, a late sunrise, optimism finding its feet',
+      'The sun is behind a thin cloud and still shining. Lower the bar for happiness today and you will clear it easily.'],
+    [20, 'judgement', 'Judgement', '♇', 'Pluto',
+      4, 'awakening, a calling, a clean slate',
+      'You are being called up to a truer version of your life. Forgive the old chapter, answer honestly, and rise.',
+      2, 'self-doubt, an unanswered call, old verdicts',
+      'You are judging yourself by an outdated ruling. Drop the old charge; you are allowed to answer the call late.'],
+    [21, 'world', 'The World', '♄', 'Saturn',
+      5, 'completion, wholeness, a circle closed',
+      'Something comes full circle today. Finish it, celebrate it, and feel how far you have actually travelled.',
+      3, 'the last step, loose ends, a circle nearly closed',
+      'You are closer to done than you think. Tie off the last loose end before starting something new.']
+  ];
+
+  // Minor Arcana rows, Ace to King (14 per suit):
+  // [up.a, up.k, up.t, rev.a, rev.k, rev.t]
+  var MINORS = {
+    wands: [
+      [5, 'a spark, inspiration, a bold beginning',
+        'A new idea arrives with heat in it. Start before it cools; even a clumsy first move counts today.',
+        2, 'a spark waiting, delays, low fuel',
+        'The idea is good and the kindling is damp. Rest, refuel, and try the match again later.'],
+      [4, 'planning, a wider view, the next horizon',
+        'You are at the window with the map in your hand. Decide where you are going; the world is bigger than this room.',
+        2, 'caution, a plan on hold, fear of the unknown',
+        'Staying put feels safe, and it is getting small. Sketch the plan today, even if you are not ready to leave.'],
+      [4, 'expansion, foresight, ships coming in',
+        'What you sent out is on its way back to you. Keep looking outward; today rewards the long view.',
+        2, 'delays, a narrow view, ships held offshore',
+        'Results are slower than you hoped and they are still coming. Widen your options while you wait.'],
+      [5, 'celebration, homecoming, a milestone reached',
+        'There is something worth celebrating, so celebrate. Gather your people, mark the milestone, and let home feel like home.',
+        3, 'a quiet celebration, in-between days, a home in transition',
+        'The party is smaller or the house is in boxes, and the joy is real anyway. Mark the moment in your own way.'],
+      [2, 'friction, competition, too many voices',
+        'Everyone has an opinion today and none of them agree. Treat it as sparring practice and leave the jabs at the door.',
+        3, 'easing tension, a truce, battles chosen wisely',
+        'The argument is running out of steam. Let it; you win more by putting the stick down.'],
+      [5, 'victory, recognition, a public win',
+        'You have earned applause, so let yourself hear it. Share the news, accept the compliment, and ride in tall.',
+        2, 'a private win, delayed credit, doubt after success',
+        'The recognition may be late or quiet today. You know what you did; be the first to congratulate yourself.'],
+      [3, 'conviction, firm ground, a hill worth holding',
+        'You have the high ground and good reasons. Hold your position kindly and firmly; you do not have to convince everyone.',
+        2, 'overwhelm, a tired defence, too many fronts',
+        'You are defending on too many sides at once. Choose the one hill that matters and let the others go.'],
+      [4, 'speed, news, things in motion',
+        'Everything moves at once and it is all headed your way. Reply quickly, travel light, and enjoy the tailwind.',
+        2, 'delays, crossed wires, a pause mid-flight',
+        'Messages lag and plans bunch up today. Slow down, check the details twice, and it lands fine.'],
+      [3, 'resilience, persistence, the last stretch',
+        'You are tired because you have come far, and you are closer than it feels. One more push, guard up and heart open.',
+        2, 'weariness, a guard held too high, an empty tank',
+        'You have been braced for so long it aches. Lower the shield a little and let someone help you carry it.'],
+      [2, 'a heavy load, duty, too much carried alone',
+        'You are carrying more than one person\'s share. Set down whatever is not truly yours; the finish line is nearer than it looks.',
+        3, 'a load set down, delegation, relief',
+        'You get to put something down today. Hand off the task, cancel the extra, and feel your shoulders drop.'],
+      [4, 'curiosity, enthusiasm, a new adventure',
+        'Something sparks your interest, and that is reason enough. Follow it like a beginner, with no need to be good yet.',
+        2, 'restlessness, a false start, enthusiasm without a home',
+        'Lots of energy, nowhere to put it. Pick the smallest version of the idea and try that.'],
+      [4, 'passion, daring, full speed ahead',
+        'Go boldly today. Your energy is contagious; aim it at one adventure and the road opens.',
+        2, 'haste, scattered fire, a leap before a look',
+        'The urge to charge is strong and the map is missing. Count to ten, then ride.'],
+      [5, 'confidence, warmth, magnetic energy',
+        'You light up the room without trying today. Lead with warmth, back yourself, and others follow your spark.',
+        2, 'shaken confidence, comparison, a dimmed flame',
+        'You are measuring yourself against someone else\'s highlights. Come back to your own fire; it has gone nowhere.'],
+      [5, 'vision, leadership, bold direction',
+        'You can see the big picture and people trust you to hold it. Set the direction and let others bring their best.',
+        2, 'impatience, big demands, vision without a plan',
+        'Your standards are sprinting ahead of everyone, including you. Turn the grand idea into one doable step.']
+    ],
+    cups: [
+      [5, 'an open heart, new feeling, emotional renewal',
+        'Your cup is being refilled. Let the kindness in, and say yes to whatever makes your heart feel new.',
+        2, 'held-back feelings, an empty cup, overdue self-care',
+        'You have been pouring from a cup that needs filling. Tend to yourself first; the rest can wait an hour.'],
+      [5, 'partnership, mutual trust, a true connection',
+        'Someone meets you halfway today. Reach out; an honest exchange turns into something worth keeping.',
+        2, 'a missed connection, uneven give-and-take, an overdue talk',
+        'Something between you and another person is slightly off balance. One honest sentence will level it.'],
+      [5, 'friendship, shared joy, good company',
+        'Joy multiplies when it is shared today. Call your people, raise a glass, and laugh more than is strictly necessary.',
+        2, 'too much of a good thing, crowded plans, a craving for quiet',
+        'The social calendar is fuller than your energy. It is fine to toast with tea and leave early.'],
+      [2, 'apathy, daydreaming, an offer overlooked',
+        'You are so deep in thought you could miss what is being handed to you. Look up; there is a fourth cup.',
+        3, 'fresh interest, re-engagement, an offer noticed',
+        'Your appetite for life is coming back. Say yes to the invitation you would have waved away last week.'],
+      [1, 'loss, regret, cups still standing',
+        'A disappointment is asking to be felt, so let it. When you are ready, turn around; some cups are still standing.',
+        3, 'acceptance, forgiveness, a turn toward what remains',
+        'You are done staring at what spilled. Pick up the cups still standing and carry them home.'],
+      [4, 'nostalgia, kindness, simple gifts',
+        'Something sweet from the past finds you again. Give without keeping score and let an old joy be new.',
+        2, 'rose-tinted memory, a backward glance, a past to release',
+        'The past is a nice place to visit, and today needs you here. Bring the lesson forward and leave the rest.'],
+      [2, 'daydreams, many options, wishful thinking',
+        'So many shiny possibilities, and only some of them are real. Choose one cup and see what is actually inside.',
+        3, 'clarity, a choice made, fantasy sorted from fact',
+        'The fog of options is clearing. You know which one you want; choose it and let the others fade.'],
+      [2, 'a quiet departure, a search for more, moving on',
+        'Something that used to satisfy you no longer does. It is okay to leave a full table in search of what matters.',
+        2, 'lingering, one more try, an unsure goodbye',
+        'You are half out the door and half in. Decide what you would need in order to stay, and ask for it plainly.'],
+      [5, 'a wish granted, contentment, well-earned pleasure',
+        'This is the wish card, and it is on your side. Enjoy what you have out loud; satisfaction looks good on you.',
+        2, 'a wish half-met, restlessness, wanting more',
+        'You got what you asked for and the feeling is different from what you pictured. Ask what you would wish for now.'],
+      [5, 'harmony, belonging, a happy home',
+        'Everything that matters is within arm\'s reach. Be with the people who feel like home and let it be enough.',
+        2, 'a home out of tune, crossed wires, picture-perfect pressure',
+        'Home feels slightly out of tune. Drop the idea of how it should look and listen to how it is.'],
+      [4, 'a sweet surprise, creative play, a tender message',
+        'A small, good surprise is swimming toward you. Stay playful, follow the odd idea, and answer kindly.',
+        2, 'creative shyness, moodiness, a feeling unspoken',
+        'A feeling is waiting for words. Write it down badly; it does not have to be a poem.'],
+      [4, 'romance, charm, an invitation',
+        'Follow your heart and bring flowers. An offer or invitation arrives; accept it with grace.',
+        2, 'moodiness, big promises, romance in the clouds',
+        'A lovely idea needs its feet on the ground. Check the promise against the calendar before you swoon.'],
+      [5, 'compassion, intuition, emotional calm',
+        'Your kindness is your great strength today. Listen deeply, trust what you feel, and care for yourself as tenderly as for others.',
+        2, 'borrowed moods, blurred boundaries, a heart overdrawn',
+        'You have been absorbing everyone\'s weather. Step back, find your own shoreline, and refill.'],
+      [4, 'calm waters, emotional maturity, a wise heart',
+        'You can feel it all and still steer straight. Be the steady one; your calm is a gift to the room.',
+        2, 'bottled feelings, moodiness, a tide held back',
+        'A feeling held under will surface sideways. Let it out somewhere safe and the water settles.']
+    ],
+    swords: [
+      [5, 'clarity, breakthrough, a sharp new idea',
+        'The fog cuts cleanly in two. Name the truth, make the decision, and write down the idea before it flies.',
+        2, 'clouded thinking, a blunt edge, an idea still forming',
+        'The thought is not clear yet, and forcing it will not help. Sleep on it; the edge returns.'],
+      [2, 'a stalemate, a hard choice, eyes closed to it',
+        'Two options sit balanced and waiting will not tip them. Take the blindfold off and look at what you already know.',
+        3, 'a decision emerging, a lifted blindfold, a stalemate ending',
+        'You are finally ready to choose. The decision you avoided is lighter than the avoiding.'],
+      [1, 'heartache, hard truth, a tender spot',
+        'Something hurts, and it is allowed to. Let the feeling rain itself out; hearts mend best when they are not hurried.',
+        3, 'mending, forgiveness, a passing storm',
+        'The sharpest part is over. Be gentle with the sore spot and let it heal at its own pace.'],
+      [3, 'rest, recovery, a quiet mind',
+        'Rest is the task today. Put the swords down, close the door, and let your mind go still.',
+        2, 'restlessness, burnout at the door, rest postponed',
+        'You are running on yesterday\'s battery. Take the break now, before your body schedules it for you.'],
+      [2, 'a hollow win, sharp words, conflict',
+        'You could win this one and still lose something. Ask whether the point is worth the price, then choose peace.',
+        3, 'peace made, old grudges released, a wiser exit',
+        'The fight is over if you let it be. Offer the olive branch, or simply put the sword down.'],
+      [3, 'transition, calmer waters, rough seas left behind',
+        'You are being carried from choppy water toward something smoother. It is a slow boat; trust the direction.',
+        2, 'unfinished business, a rocky crossing, baggage aboard',
+        'You are trying to move on with something still unsaid. Deal with the anchor and the boat moves.'],
+      [2, 'strategy, secrecy, a quiet manoeuvre',
+        'Something is being done on the quiet, possibly by you. Be clever, and stay honest with yourself about why.',
+        3, 'coming clean, a cleared conscience, a secret set down',
+        'A truth wants out, and it will be a relief. Say it simply and walk lighter.'],
+      [2, 'a stuck feeling, self-doubt, bindings looser than they look',
+        'You feel boxed in, though the ropes are loose and the path is open. Take one step and see what happens.',
+        4, 'release, a new perspective, a walk into the open',
+        'The blindfold slips and the way out was there all along. Step through; you are freer than you have been in a while.'],
+      [1, 'worry, restless nights, fears louder than facts',
+        'Your mind is telling scary stories in the dark. Say the worry out loud to someone; it shrinks in the telling.',
+        3, 'easing worry, a hand reached out, first light',
+        'The long night of overthinking is ending. You can see the fear for what it is, and it is smaller.'],
+      [1, 'a final ending, rock bottom, the dawn behind it',
+        'Something is finished, completely. That is the hard part and the good part: the sky behind it is already getting light.',
+        4, 'recovery, rising again, the worst behind you',
+        'You are getting back up. The thing you feared has already happened, and you are still here, stronger for it.'],
+      [3, 'curiosity, sharp eyes, questions worth asking',
+        'Ask the question everyone else is thinking. Your mind is quick today; point it at something worth learning.',
+        2, 'all talk, hasty words, scattered attention',
+        'Lots of thoughts, not much landing. Listen twice before you speak once.'],
+      [3, 'drive, directness, a fast charge',
+        'You know what you want and you are moving fast. Aim carefully, because today you hit what you point at.',
+        2, 'rushing, bluntness, speed without steering',
+        'Fast and far are different things. Slow your words by half and your point lands twice as well.'],
+      [4, 'clear sight, honesty, wise boundaries',
+        'You see through the noise today. Say it straight, keep your boundary, and let honesty be a kindness.',
+        2, 'a sharp tongue, guardedness, head over heart',
+        'Your armour is up and your words have edges. Let a little warmth in; clarity does not have to be cold.'],
+      [4, 'clear judgement, authority, truth spoken well',
+        'Think it through and then decide; your judgement is sound. Lead with facts and fairness.',
+        2, 'overthinking, harsh logic, cleverness as a weapon',
+        'Being right and being wise are different. Soften the verdict and hear the other side out.']
+    ],
+    pentacles: [
+      [5, 'a new opportunity, prosperity, solid beginnings',
+        'A real, tangible chance lands in your palm. Plant it today; this seed has good soil.',
+        2, 'a missed chance, shaky footing, a seed unplanted',
+        'An opportunity needs more preparation than it first seemed. Check the numbers, then plant.'],
+      [3, 'juggling, adaptability, a steady rhythm',
+        'There is a lot in the air and you are keeping it there. Stay light on your feet; the rhythm is the trick.',
+        2, 'overcommitment, dropped balls, a calendar too full',
+        'One ball too many. Set something down on purpose before it falls by accident.'],
+      [4, 'teamwork, craft, skill recognised',
+        'Good work gets noticed today, especially work done together. Ask for input and build it properly.',
+        2, 'crossed purposes, solo effort, work unseen',
+        'The team is not quite in step. Clarify who is doing what, and say when you need help.'],
+      [3, 'security, saving, a firm hold',
+        'You have built something worth protecting. Keep it safe, and leave one hand open for what is coming.',
+        3, 'a loosened grip, generosity, careful spending',
+        'You can afford to open your hand a little. Share, spend, or let go of one thing you have been clutching.'],
+      [1, 'a lean spell, feeling left out, help nearby',
+        'Today may feel like standing outside in the cold. Look up; the lit window is right there, and help is closer than pride admits.',
+        4, 'recovery, help accepted, a return to the warm',
+        'The lean stretch is ending. Accept the hand held out to you and step back into the warm.'],
+      [4, 'generosity, fair exchange, giving and receiving',
+        'Kindness circulates today. Give what you can, take what is offered, and notice how both feel good.',
+        2, 'strings attached, uneven giving, a debt to mind',
+        'A favour is tipping the scales. Give freely or hold back, and ask for what you are owed.'],
+      [3, 'patience, slow growth, a moment to take stock',
+        'The garden is growing even if you cannot see it yet. Lean on the hoe and assess; this is a long game you are winning.',
+        2, 'impatience, misplaced effort, wanting it now',
+        'You are pulling up the seedlings to check the roots. Wait or replant, and stop digging.'],
+      [4, 'craft, practice, steady improvement',
+        'Put your head down and do the work you are good at. Each careful repetition is making you a master.',
+        2, 'perfectionism, routine motions, craft without joy',
+        'You are polishing the same coin again. Call it done, or remember why you started.'],
+      [5, 'self-made comfort, independence, a harvest enjoyed',
+        'You built this, so enjoy it. Treat yourself well today; you owe no one an explanation for your comfort.',
+        2, 'overwork, comfort postponed, worth tied to output',
+        'You have earned rest you are not taking. Close the laptop; the garden is for sitting in, too.'],
+      [5, 'lasting wealth, family, legacy',
+        'What you are building will outlast the day. Invest in the people and places that hold you; this is the long, rich story.',
+        2, 'family friction, short-term thinking, a foundation to check',
+        'Something about home or money wants a longer view. Talk it through before it grows.'],
+      [4, 'study, ambition, a practical dream',
+        'A new skill or plan is ready for its first lesson. Be a good student today; small steps make it real.',
+        2, 'procrastination, a plan on paper, lessons skipped',
+        'The plan is lovely and still on paper. Do the first ten minutes; momentum does the rest.'],
+      [3, 'diligence, routine, steady progress',
+        'Slow and steady really does win today. Keep showing up; the furrow you are ploughing is straight.',
+        2, 'a rut, stubbornness, work without spark',
+        'Routine has turned into a rut. Change one small thing and the whole day wakes up.'],
+      [5, 'nurture, practicality, warm abundance',
+        'You make things better just by caring for them. Tend your home, your body and your people, and feel how rich you are.',
+        2, 'self-care left last, thin stretching, a work-home tangle',
+        'You are caring for everything except the carer. Put yourself on your own list today.'],
+      [5, 'security, mastery, generous success',
+        'You have this handled, and it shows. Make the solid choice, share the wealth, and enjoy being dependable.',
+        2, 'stubbornness, money worries, success held too tightly',
+        'The spreadsheet is only part of the story. Loosen up about the numbers and remember what they are for.']
+    ]
+  };
+
+  var RANK_NAMES = [null, 'Ace', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+    'Page', 'Knight', 'Queen', 'King'];
+  var RANK_SHORT = [null, 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'P', 'Kn', 'Q', 'K'];
+  var SUIT_ORDER = ['wands', 'cups', 'swords', 'pentacles'];
+
+  var CARDS = [];
+  MAJORS.forEach(function (m) {
+    CARDS.push({
+      id: m[1], name: m[2], arcana: 'major', suit: null, n: m[0], glyph: m[3], link: m[4],
+      up: { a: m[5], k: m[6], t: m[7] },
+      rev: { a: m[8], k: m[9], t: m[10] }
+    });
+  });
+  SUIT_ORDER.forEach(function (suit) {
+    MINORS[suit].forEach(function (r, i) {
+      var n = i + 1;
+      CARDS.push({
+        id: suit.charAt(0) + (n < 10 ? '0' : '') + n,
+        name: RANK_NAMES[n] + ' of ' + SUITS[suit].name,
+        arcana: 'minor', suit: suit, n: n, short: RANK_SHORT[n],
+        up: { a: r[0], k: r[1], t: r[2] },
+        rev: { a: r[3], k: r[4], t: r[5] }
+      });
+    });
+  });
+
+  var CARD_BY_ID = {};
+  CARDS.forEach(function (c) { CARD_BY_ID[c.id] = c; });
+
+  // The twelve signs. `card` is the sign's Major Arcana card (Golden Dawn attribution),
+  // `suit` is the Minor Arcana suit that shares the sign's element.
+  // `gift` and `ease` are used in the closing lines of a reading.
+  var SIGNS = [
+    { id: 'aries', name: 'Aries', glyph: '♈', dates: 'Mar 21 – Apr 19', element: 'Fire', suit: 'wands', modality: 'Cardinal', ruler: 'Mars', card: 'emperor',
+      open: 'Aries, you were born to go first.', gift: 'your nerve and your quick start', ease: 'the urge to rush the ending' },
+    { id: 'taurus', name: 'Taurus', glyph: '♉', dates: 'Apr 20 – May 20', element: 'Earth', suit: 'pentacles', modality: 'Fixed', ruler: 'Venus', card: 'hierophant',
+      open: 'Taurus, you build things that last.', gift: 'your patience and steady hands', ease: 'digging your heels in' },
+    { id: 'gemini', name: 'Gemini', glyph: '♊', dates: 'May 21 – Jun 20', element: 'Air', suit: 'swords', modality: 'Mutable', ruler: 'Mercury', card: 'lovers',
+      open: 'Gemini, your mind is a room with every window open.', gift: 'your curiosity and quick tongue', ease: 'chasing every thread at once' },
+    { id: 'cancer', name: 'Cancer', glyph: '♋', dates: 'Jun 21 – Jul 22', element: 'Water', suit: 'cups', modality: 'Cardinal', ruler: 'the Moon', card: 'chariot',
+      open: 'Cancer, you feel the weather in a room before anyone speaks.', gift: 'your instinct for who needs what', ease: 'retreating into the shell' },
+    { id: 'leo', name: 'Leo', glyph: '♌', dates: 'Jul 23 – Aug 22', element: 'Fire', suit: 'wands', modality: 'Fixed', ruler: 'the Sun', card: 'strength',
+      open: 'Leo, the day goes better when you are in it.', gift: 'your warmth and sense of occasion', ease: 'waiting for applause before you believe it went well' },
+    { id: 'virgo', name: 'Virgo', glyph: '♍', dates: 'Aug 23 – Sep 22', element: 'Earth', suit: 'pentacles', modality: 'Mutable', ruler: 'Mercury', card: 'hermit',
+      open: 'Virgo, you notice what everyone else walks past.', gift: 'your eye for the detail that matters', ease: 'polishing what is already good' },
+    { id: 'libra', name: 'Libra', glyph: '♎', dates: 'Sep 23 – Oct 22', element: 'Air', suit: 'swords', modality: 'Cardinal', ruler: 'Venus', card: 'justice',
+      open: 'Libra, you make things fair and you make them beautiful.', gift: 'your sense of balance and grace', ease: 'weighing a choice until it goes stale' },
+    { id: 'scorpio', name: 'Scorpio', glyph: '♏', dates: 'Oct 23 – Nov 21', element: 'Water', suit: 'cups', modality: 'Fixed', ruler: 'Pluto', card: 'death',
+      open: 'Scorpio, you see what is under the surface.', gift: 'your depth and unflinching focus', ease: 'holding on tighter than you need to' },
+    { id: 'sagittarius', name: 'Sagittarius', glyph: '♐', dates: 'Nov 22 – Dec 21', element: 'Fire', suit: 'wands', modality: 'Mutable', ruler: 'Jupiter', card: 'temperance',
+      open: 'Sagittarius, you aim far and usually land somewhere interesting.', gift: 'your optimism and long aim', ease: 'promising more than one day can hold' },
+    { id: 'capricorn', name: 'Capricorn', glyph: '♑', dates: 'Dec 22 – Jan 19', element: 'Earth', suit: 'pentacles', modality: 'Cardinal', ruler: 'Saturn', card: 'devil',
+      open: 'Capricorn, you climb what other people only look at.', gift: 'your discipline and long game', ease: 'carrying the whole mountain yourself' },
+    { id: 'aquarius', name: 'Aquarius', glyph: '♒', dates: 'Jan 20 – Feb 18', element: 'Air', suit: 'swords', modality: 'Fixed', ruler: 'Uranus', card: 'star',
+      open: 'Aquarius, you think ten years ahead of the room.', gift: 'your originality and wide view', ease: 'watching your own life from a distance' },
+    { id: 'pisces', name: 'Pisces', glyph: '♓', dates: 'Feb 19 – Mar 20', element: 'Water', suit: 'cups', modality: 'Mutable', ruler: 'Neptune', card: 'moon',
+      open: 'Pisces, you swim in currents other people cannot feel.', gift: 'your imagination and soft heart', ease: 'soaking up everyone else\'s mood' }
+  ];
+  var SIGN_BY_ID = {};
+  SIGNS.forEach(function (s) { SIGN_BY_ID[s.id] = s; });
+
+  return {
+    SUITS: SUITS, SUIT_ORDER: SUIT_ORDER, MOONS: MOONS,
+    RANK_NAMES: RANK_NAMES, RANK_SHORT: RANK_SHORT,
+    CARDS: CARDS, CARD_BY_ID: CARD_BY_ID,
+    SIGNS: SIGNS, SIGN_BY_ID: SIGN_BY_ID
+  };
+});
