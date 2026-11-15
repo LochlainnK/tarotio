@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tarotio</title>
-<meta name="description" content="A daily three-card tarot game for your star sign. Answer the reader's questions, earn a glimpse of the face-down cards, and keep one from each hand.">
+<meta name="description" content="A daily three-card tarot game for your star sign. Turn a card, then keep it or pay a chip to pass. The three you keep become your fortune for the day.">
 <meta name="theme-color" content="#163b34">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='5' fill='%238d2e2a' stroke='%23f7f1dd' stroke-width='4'/%3E%3Crect x='26' y='26' width='12' height='12' transform='rotate(45 32 32)' fill='%23f2c230'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -35,6 +35,9 @@
     <path fill-rule="evenodd" d="M12 1.5a10.5 10.5 0 1 0 0 21 10.5 10.5 0 0 0 0-21zm0 2.2a8.3 8.3 0 1 1 0 16.6 8.3 8.3 0 0 1 0-16.6z" fill="currentColor"/>
     <path d="M12 5.6l1.56 4.26 4.53.17-3.56 2.8 1.24 4.36L12 14.67l-3.77 2.52 1.24-4.36-3.56-2.8 4.53-.17z" fill="currentColor"/>
   </symbol>
+  <symbol id="i-star" viewBox="0 0 24 24">
+    <path d="M12 1.5l2.7 7.8 7.8 2.7-7.8 2.7-2.7 7.8-2.7-7.8-7.8-2.7 7.8-2.7z" fill="currentColor"/>
+  </symbol>
   <symbol id="i-eye" viewBox="0 0 24 24">
     <path fill-rule="evenodd" d="M12 5C6.5 5 2.5 9.4 1.5 12c1 2.6 5 7 10.5 7s9.5-4.4 10.5-7C21.5 9.4 17.5 5 12 5zm0 11.2a4.2 4.2 0 1 1 0-8.4 4.2 4.2 0 0 1 0 8.4zm0-2.2a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" fill="currentColor"/>
   </symbol>
@@ -60,7 +63,7 @@
     <section id="view-intro" class="view intro">
       <div class="intro-copy">
         <h2 class="intro-title">One reading a day, dealt for your sign.</h2>
-        <p class="intro-lead">Three hands of five cards, face down. Answer the reader&rsquo;s question to earn a glimpse, then keep one card from each hand. The three you keep become your fortune for today.</p>
+        <p class="intro-lead">Three hands of five cards, face down. Turn a card, then hold your nerve: keep it, or pay a chip to pass and turn another. The three you keep become your fortune for today.</p>
         <div class="fan" aria-hidden="true">
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
@@ -69,9 +72,9 @@
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
         </div>
         <ol class="steps">
-          <li><span><b>Answer.</b> Right first time earns two glimpses. Right on the second try earns one.</span></li>
-          <li><span><b>Glimpse.</b> Each glimpse turns one face-down card face up.</span></li>
-          <li><span><b>Keep.</b> Choose any card, seen or unseen. Skill opens your eyes. The deck still decides what was dealt.</span></li>
+          <li><span><b>Win chips.</b> Every hand comes with one chip. Answer the reader&rsquo;s question to win up to two more.</span></li>
+          <li><span><b>Turn a card.</b> Keep it, or pay a chip to pass and turn another. A passed card is gone for good.</span></li>
+          <li><span><b>Read the table.</b> The moons above each hand show what it holds, though never where. The mark on each back shows the card&rsquo;s suit.</span></li>
         </ol>
       </div>
       <div class="intro-sign">
@@ -85,14 +88,17 @@
       </div>
     </section>
 
-    <!-- 2. Play: three hands, one card kept from each -->
+    <!-- 2. Play: three hands. Turn a card, keep it or pay a chip to pass. -->
     <section id="view-play" class="view play" hidden>
-      <div class="spread" id="spread" role="group" aria-label="Your spread so far"></div>
+      <div class="spread-wrap">
+        <div class="spread" id="spread" role="group" aria-label="Your spread so far"></div>
+        <p class="tally" id="tally"></p>
+      </div>
       <div class="reader" id="reader" aria-live="polite"></div>
-      <p class="tell" id="tell" hidden></p>
+      <div class="hud" id="hud"></div>
       <div class="hand" id="hand" role="group" aria-label="This hand of five cards"></div>
       <div class="seen-wrap" id="seen-wrap" hidden>
-        <h3 class="mini-h" id="seen-h">What you have seen</h3>
+        <h3 class="mini-h" id="seen-h">Turned so far</h3>
         <ul class="seen" id="seen"></ul>
       </div>
     </section>
@@ -115,23 +121,34 @@
   <div class="sheet-body">
     <p>Each day one deck is shuffled for every star sign. It deals you three hands of five cards, face down. You keep one card from each hand: your <b>Past</b>, <b>Present</b> and <b>Future</b>.</p>
     <ol class="steps">
-      <li><span><b>Answer</b> the reader&rsquo;s question. Right first time earns two glimpses. Right on the second try earns one. The questions grow harder from Past to Future.</span></li>
-      <li><span><b>Glimpse.</b> Spend each glimpse to turn one card face up and see how brightly it shines today.</span></li>
-      <li><span><b>Keep</b> one card. Keep a card you have seen, or gamble on one you have not.</span></li>
+      <li><span><b>Win chips.</b> Every hand comes with one chip from the reader. Answer the question to win more: two for right first time, one for right on the second try. Chips you do not spend carry to the next hand.</span></li>
+      <li><span><b>Turn a card.</b> Tap any face-down card to turn it over.</span></li>
+      <li><span><b>Keep or pass.</b> Keep the card, or pay one chip to pass. A passed card is burned: you cannot go back to it. With no chips left, the card you turn is the card you keep.</span></li>
     </ol>
     <h3 class="mini-h">The moons</h3>
     <p>Every card has a brightness for the day, from New Moon to Full Moon. It comes from the card&rsquo;s traditional meaning and whether it lands upright or reversed. A reversed card is often dimmer, but the hardest cards turn kinder when reversed.</p>
     <div class="legend" id="moon-legend"></div>
     <p>No card is bad. New-moon cards are the ones that ask something of you.</p>
-    <h3 class="mini-h">The tell</h3>
-    <p>Every hand comes with a tell: how many of its five cards are bright, meaning Gibbous or Full Moon. It never says which. As you turn cards over, the tell counts how many bright ones are still face down, so you always know your odds before you keep an unseen card.</p>
+    <h3 class="mini-h">Reading the table</h3>
+    <p>Above each hand is a row of five moons: exactly what the hand holds, but never which card is which. As you turn cards, their moons are crossed off, so you can always see what is still face down before you risk a pass.</p>
+    <p>The mark on the back of each card is its suit. Cards in your sign&rsquo;s suit are worth more to you, and suits are how you build a hand.</p>
+    <div class="legend" id="suit-legend"></div>
+    <h3 class="mini-h">Building a hand</h3>
+    <p>Your three cards are read together, the way a reader would, and the right three are worth more than their moons:</p>
+    <ul class="plain">
+      <li><b>Your element</b>: each card in your sign&rsquo;s suit, +1. Swords is the hardest suit, so Air signs get +2.</li>
+      <li><b>Your card</b>: your sign&rsquo;s own Major Arcana card, +2.</li>
+      <li><b>Trine</b> (a flush): three of one suit, +2.</li>
+      <li><b>Fate&rsquo;s Hand</b>: three Major Arcana, +2.</li>
+      <li><b>Echo</b> (a pair): two cards with the same number, +1. Three, +3.</li>
+      <li><b>The Stair</b> (a straight): three numbers in a row, +2.</li>
+    </ul>
+    <p>A reading needs 11 moons for a Half Moon, 14 for a Gibbous Moon and 16 for a Full Moon.</p>
     <h3 class="mini-h">Skill and luck</h3>
-    <p>Your answers earn glimpses, and glimpses let you choose with your eyes open. But the deck is shuffled before you sit down and most of each hand stays face down. A perfect player can still be dealt a deep day. A blind draw can still turn up The Sun.</p>
-    <p>Your reading shows both parts: <b>Insight</b> is what you earned, <b>Fortune</b> is what the deck gave. It also shows every reading the deck could have dealt, so you can see how lucky you were.</p>
-    <h3 class="mini-h">Patterns</h3>
-    <p>The three cards are read together, the way a reader would. Cards in your sign&rsquo;s suit shine one step brighter. Your sign&rsquo;s own Major Arcana card, three of one suit, a repeated number, a run of numbers or three Major Arcana all add to your fortune.</p>
+    <p>Your answers win chips, and chips let you dig deeper into a hand. But the deck is shuffled before you sit down. A perfect player can still be dealt a quiet day, and a first turn can still be The Sun.</p>
+    <p>Your reading shows both parts. <b>Insight</b> is the chips you won. <b>Fortune</b> is what the cards gave. It also shows what your first turns alone would have made, so you can see exactly what your passes changed.</p>
     <h3 class="mini-h">Keyboard</h3>
-    <p>Press 1 to 4 to answer a question and 1 to 5 to pick a card. Enter confirms.</p>
+    <p>1 to 4 answer a question. 1 to 5 turn a card. K keeps, P passes.</p>
   </div>
 </dialog>
 

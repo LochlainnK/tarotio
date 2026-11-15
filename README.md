@@ -3,13 +3,14 @@
 A daily three-card tarot game for your star sign.
 
 Each day a deck is shuffled for every sign and deals three hands of five cards, face
-down. You answer the reader's question to earn a glimpse of the hand, then keep one card.
-The three cards you keep are your Past, Present and Future, read together as your fortune
-for the day.
+down. You turn a card, then hold your nerve: keep it, or pay a chip to pass and turn
+another. A passed card is gone for good. The three cards you keep are your Past, Present
+and Future, read together as your fortune for the day.
 
-Skill and luck are scored separately. **Insight** is what you earned from the questions.
-**Fortune** is what the deck gave you. The result shows every reading the deck could have
-dealt, so you can see how much of your day was you and how much was the shuffle.
+Skill and luck are scored separately. **Insight** is the chips you won from the reader's
+questions. **Fortune** is what the cards gave you. The result shows what your first turns
+alone would have made beside what you ended with, so you can see exactly what your passes
+changed and how much of the day was the deal.
 
 ## Play it
 
@@ -23,21 +24,25 @@ npm start
 
 Then open `http://localhost:8080`.
 
-## How a day works
+## How a hand works
 
-1. **Answer.** Right first time earns two glimpses. Right on the second try earns one.
-2. **Glimpse.** Each glimpse turns one face-down card face up.
-3. **Keep.** Choose any card, seen or unseen.
-4. Repeat for the Present and the Future, then read your three cards.
+1. **Win chips.** Every hand comes with one chip. Answer the question to win more: two
+   for right first time, one for right on the second try. Unspent chips carry over.
+2. **Turn a card.** Tap any face-down card.
+3. **Keep or pass.** Keep it, or pay a chip to burn it and turn another. With no chips
+   left, the card you turn is the card you keep.
 
-Every hand shows a tell: how many of its five cards are bright, without saying which. It
-updates as you turn cards, so you always know your odds before you keep an unseen one.
+Two things are always on the table to reason from:
 
-Keyboard: 1 to 4 answer a question, 1 to 5 pick a card, Enter confirms.
+- **The moon board** shows the five moons the hand holds, but never which card is which.
+  Turned cards are crossed off, so you can see what is still face down before you pass.
+- **Suit marks** on the card backs show each card's suit. Cards in your sign's element
+  are worth more to you, and three of a suit, a repeated number, a run of numbers or your
+  sign's own card all add to the fortune. You are building a three-card hand.
 
-Card meanings follow the Rider-Waite-Smith tradition, including reversals. Cards in your
-sign's element shine a step brighter, and patterns across the three cards (a shared suit,
-a repeated number, a run, your sign's own card) add to the fortune.
+Card meanings follow the Rider-Waite-Smith tradition, including reversals.
+
+Keyboard: 1 to 4 answer a question, 1 to 5 turn a card, K keeps, P passes.
 
 ## Develop
 

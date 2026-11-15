@@ -29,13 +29,18 @@
     ROUNDS: 3,
     HAND_SIZE: 5,
     REVERSED_CHANCE: 0.3,       // chance each dealt card lands reversed
-    GLIMPSES_FIRST_TRY: 2,      // answer right first time
-    GLIMPSES_SECOND_TRY: 1,     // answer right on the second try
+    CHIPS_PER_HAND: 1,          // every hand starts with one chip from the Reader, so everyone gets a keep-or-pass decision
+    CHIPS_FIRST_TRY: 2,         // answer right first time
+    CHIPS_SECOND_TRY: 1,        // answer right on the second try
+    PASS_PRICE: 1,              // chips paid to pass on a turned card
     MAX_TRIES: 2,
-    BRIGHT_FROM: 4,             // a card is "bright" at Gibbous Moon or better; the tell counts these
-    BONUS: { attuned: 1, signCard: 2, trine: 2, majors: 2, pair: 1, triple: 3, run: 2 }
+    BRIGHT_FROM: 4,             // a card is "bright" at Gibbous Moon or better
+    BONUS: { attuned: 1, signCard: 2, trine: 2, majors: 2, pair: 1, triple: 3, run: 2 },
+    // What a card in the player's own element adds. Swords is the hardest suit in the deck,
+    // so it gives its own (Air) signs two steps; without this, Air signs come out measurably less lucky.
+    ATTUNED_BY_SUIT: { wands: 1, cups: 1, swords: 2, pentacles: 1 }
   };
-  CONFIG.MAX_INSIGHT = CONFIG.ROUNDS * CONFIG.GLIMPSES_FIRST_TRY;
+  CONFIG.MAX_INSIGHT = CONFIG.ROUNDS * CONFIG.CHIPS_FIRST_TRY;
 
   // Reading tiers. `min` is the lowest total brightness that reaches the tier.
   var TIERS = [
@@ -55,7 +60,7 @@
         'Today is for looking after yourself first. Lean on {gift} and let the small things count.',
         'Give yourself room today. {Gift} is still yours on a dark-moon day, and tomorrow the deck is shuffled fresh.'
       ] },
-    { level: 2, moon: 'Crescent Moon', title: 'Gentle', min: 8,
+    { level: 2, moon: 'Crescent Moon', title: 'Gentle', min: 9,
       lines: [
         'A quiet day that rewards a slower pace.',
         'The light is thin, so go by feel and go kindly.',
@@ -70,7 +75,7 @@
         'Keep today simple. {Gift} will carry you further than hurry will.',
         'Take the gentle road today. {Gift} is enough, and so are you.'
       ] },
-    { level: 3, moon: 'Half Moon', title: 'Steady', min: 10,
+    { level: 3, moon: 'Half Moon', title: 'Steady', min: 11,
       lines: [
         'A balanced day. What you put in is what comes back.',
         'Half light, half shadow, all of it workable. Steady hands do well today.',
@@ -85,7 +90,7 @@
         'Today is yours to steer. {Gift} is the right tool for it.',
         'Nothing is in your way today and nothing is pushing you. Let {gift} set the pace.'
       ] },
-    { level: 4, moon: 'Gibbous Moon', title: 'Favoured', min: 13,
+    { level: 4, moon: 'Gibbous Moon', title: 'Favoured', min: 14,
       lines: [
         'The wind is behind you. Most of what you try today goes your way.',
         'A bright hand. Lean in, and the day leans with you.',
@@ -100,7 +105,7 @@
         'Luck is close by today. Point {gift} at the thing you care about most.',
         'Ask for the thing today. With {gift} behind it, the answer leans yes.'
       ] },
-    { level: 5, moon: 'Full Moon', title: 'Blessed', min: 15,
+    { level: 5, moon: 'Full Moon', title: 'Blessed', min: 16,
       lines: [
         'A full-moon day. The cards could hardly be kinder.',
         'Everything lines up. Ask for what you want today.',
@@ -202,14 +207,10 @@
   function face(c) { var card = CARD_BY_ID[c.id]; return c.rev ? card.rev : card.up; }
   function auspice(c) { return face(c).a; }
   function cardLabel(c) { return CARD_BY_ID[c.id].name + (c.rev ? ', reversed' : ''); }
+  function attunedBonus(suit) { return CONFIG.ATTUNED_BY_SUIT[suit] || CONFIG.BONUS.attuned; }
   function isAttuned(c, signId) {
     var card = CARD_BY_ID[c.id];
     return !!card.suit && card.suit === SIGN_BY_ID[signId].suit;
-  }
-  // A card's worth to this player when choosing: its moons plus the attunement step.
-  function worth(c, signId) {
-    var sign = SIGN_BY_ID[signId];
-    return auspice(c) + (isAttuned(c, signId) ? CONFIG.BONUS.attuned : 0) + (c.id === sign.card ? CONFIG.BONUS.signCard : 0);
   }
   function roman(n) {
     if (n === 0) return '0';
@@ -231,14 +232,53 @@
 
   function isBright(c) { return auspice(c) >= CONFIG.BRIGHT_FROM; }
 
-  // The tell: how many bright cards a hand holds, and how many of those are still face down.
-  // It is public from the moment the hand is dealt. It never says which cards they are,
-  // so it gives every player their odds and gives a player with glimpses something to reason from.
-  function handTell(hand, seen) {
-    seen = seen || [];
-    var bright = hand.filter(isBright).length;
-    var seenBright = seen.filter(function (i) { return isBright(hand[i]); }).length;
-    return { size: hand.length, bright: bright, unseen: hand.length - seen.length, unseenBright: bright - seenBright };
+  /* ------------------------------ the table --------------------------- */
+
+  // What a face-down card shows on its back: its suit, or 'major'. Never its brightness.
+  // Suits are how a player builds a hand: chase their own element, or three of a kind.
+  function aura(c) { return CARD_BY_ID[c.id].suit || 'major'; }
+
+  // The moon board: the five moons a hand holds, brightest first, WITHOUT saying which card is which.
+  // It is public from the deal, so every pass is a gamble the player can see the size of.
+  // state: 'down' (still face down), 'up' (turned, waiting for keep or pass), 'passed', 'kept'.
+  var BOARD_RANK = { kept: 0, up: 1, passed: 2, down: 3 };
+  function handBoard(hand, turned, pick, upIndex) {
+    turned = turned || [];
+    return hand.map(function (c, i) {
+      var state = i === pick ? 'kept' : i === upIndex ? 'up' : turned.indexOf(i) !== -1 ? 'passed' : 'down';
+      return { a: auspice(c), state: state };
+    }).sort(function (x, y) {
+      // equal moons are ordered by state only, never by position, so the board cannot leak where a card sits
+      return y.a - x.a || BOARD_RANK[x.state] - BOARD_RANK[y.state];
+    });
+  }
+
+  // What keeping this card would do to the spread built so far.
+  // `kept` is the cards already kept, `handsLeft` how many hands are still to come.
+  function keepPreview(kept, card, signId, handsLeft) {
+    var B = CONFIG.BONUS;
+    var before = kept.length ? scoreSpread(kept, signId) : { total: 0, patterns: [] };
+    var after = scoreSpread(kept.concat([card]), signId);
+    var notes = [];
+    after.patterns.forEach(function (p) {
+      if (!p.bonus) return;
+      var was = before.patterns.filter(function (q) { return q.id === p.id; })[0];
+      var gained = p.bonus - (was ? was.bonus : 0);
+      if (gained > 0) notes.push({ title: p.title, poker: p.poker, bonus: gained });
+    });
+    // What a later card could still complete: the reason to keep a quieter card.
+    var hopes = [];
+    var cards = kept.concat([card]).map(function (c) { return CARD_BY_ID[c.id]; });
+    if (handsLeft > 0 && cards.length === 2) {
+      var gap = Math.abs(cards[0].n - cards[1].n);
+      if (cards[0].suit && cards[0].suit === cards[1].suit) hopes.push('Two ' + SUITS[cards[0].suit].name + ': a third makes a Trine, worth +' + B.trine + '.');
+      if (!cards[0].suit && !cards[1].suit) hopes.push('Two Major Arcana: a third makes Fate\u2019s Hand, worth +' + B.majors + '.');
+      if (gap === 1 || gap === 2) hopes.push('Close numbers: the right third card makes The Stair, worth +' + B.run + '.');
+    }
+    return {
+      gain: after.total - before.total, total: after.total, tier: tierFor(after.total),
+      notes: notes, hopes: hopes, last: handsLeft === 0
+    };
   }
 
   /* -------------------------------- deal ------------------------------ */
@@ -291,10 +331,12 @@
     if (attuned.length) {
       var names = attuned.map(function (c) { return c.name; });
       var suitName = SUITS[sign.suit].name;
-      out.push({ id: 'attuned', title: 'Attuned to ' + sign.element, poker: null, bonus: B.attuned * attuned.length,
+      var step = attunedBonus(sign.suit);
+      var steps = step === 1 ? 'one step' : 'two steps';
+      out.push({ id: 'attuned', title: 'Attuned to ' + sign.element, poker: null, bonus: step * attuned.length,
         text: (attuned.length === 1
-          ? names[0] + ' is a ' + suitName + ' card, and ' + suitName + ' is the suit of ' + sign.element + ', your element. It shines one step brighter for you.'
-          : listAnd(names) + ' are ' + suitName + ' cards, the suit of ' + sign.element + ', your element. Each shines one step brighter for you.') });
+          ? names[0] + ' is a ' + suitName + ' card, and ' + suitName + ' is the suit of ' + sign.element + ', your element. It shines ' + steps + ' brighter for you.'
+          : listAnd(names) + ' are ' + suitName + ' cards, the suit of ' + sign.element + ', your element. Each shines ' + steps + ' brighter for you.') });
     }
 
     // Major Arcana count.
@@ -541,21 +583,23 @@
     return out;
   }
 
-  function glimpsesFor(tryNumber) {
-    if (tryNumber === 1) return CONFIG.GLIMPSES_FIRST_TRY;
-    if (tryNumber === 2) return CONFIG.GLIMPSES_SECOND_TRY;
+  function chipsFor(tryNumber) {
+    if (tryNumber === 1) return CONFIG.CHIPS_FIRST_TRY;
+    if (tryNumber === 2) return CONFIG.CHIPS_SECOND_TRY;
     return 0;
   }
 
   /* ------------------------------- reading ---------------------------- */
 
-  // How a card was chosen. This is the heart of telling luck from skill.
-  //   sight  = the player had turned it face up before keeping it
-  //   gamble = the player had seen other cards and kept an unseen one anyway
-  //   fate   = the player had no glimpses and chose blind
-  function howChosen(round) {
-    if (round.seen.indexOf(round.pick) !== -1) return 'sight';
-    return round.seen.length ? 'gamble' : 'fate';
+  // How a card came to be kept. This is the heart of telling luck from skill.
+  //   first = kept on the first turn, by choice (a chip was in hand to pass with)
+  //   fate  = kept on the first turn because there was no chip to pass with
+  //   dug   = found after passing at least once, and kept by choice
+  //   last  = kept after passing at least once, when the chips or the cards ran out
+  function howKept(round) {
+    var passes = round.turned.length - 1;
+    if (passes <= 0) return round.forced ? 'fate' : 'first';
+    return round.forced ? 'last' : 'dug';
   }
 
   // Sum the three card numbers and reduce to 1-22; 22 is The Fool.
@@ -576,50 +620,57 @@
   }
 
   // Plain statement of how much was the player and how much was the deck.
+  // First key: insight band (chips won from the questions). Second key: fortune band.
   var VERDICTS = {
     high: {
-      high: ['You read the table well and the deck was generous. Skill opened the door, and luck walked through it with you.',
-        'Sharp eyes, kind cards. You earned your glimpses and the deck paid them back with interest.'],
-      mid: ['You played it well. The deck dealt an even hand, and your eye made the most of it.',
-        'Good reading, fair cards. Your insight is why this landed steady.'],
+      high: ['You won your chips and spent them well, and the deck met you with bright cards. Skill opened the door and luck walked through it with you.',
+        'Sharp answers, steady nerve, kind cards. You gave yourself room to dig and the deck had something to find.'],
+      mid: ['You played it well. The deck dealt an even hand and your chips made the most of it.',
+        'Good answers, fair cards. Your chips are why this landed steady.'],
       low: ['You did your part beautifully and the deck simply ran deep today. That is the shuffle, and no reflection on you.',
-        'Your insight was sharp. The bright cards were where nobody could reach them. Some days the deck keeps its own counsel.']
+        'Your answers were sharp. The bright cards stayed out of reach all the same. Some days the deck keeps its own counsel.']
     },
     mid: {
-      high: ['A fair share of insight and a generous deck. Luck did some of the lifting today, and that is allowed.',
-        'You saw some of it coming, and fortune filled in the rest.'],
-      mid: ['Some sight, some chance, a steady result. An honest day at the table.',
+      high: ['A fair share of chips and a generous deck. Luck did some of the lifting today, and that is allowed.',
+        'You bought yourself a few second looks, and fortune filled in the rest.'],
+      mid: ['Some skill, some chance, a steady result. An honest day at the table.',
         'You and the deck met in the middle today.'],
-      low: ['You gave yourself a fair look at the cards and the deck stayed quiet. Quiet decks happen to every reader.',
-        'The glimpses you earned showed a deep deck. Seeing it clearly is a skill too.']
+      low: ['You gave yourself a few chances and the deck stayed quiet. Quiet decks happen to every reader.',
+        'Your chips bought a longer look at a deep deck. Seeing it clearly is a skill too.']
     },
     low: {
-      high: ['Today was luck, plain and simple. You chose mostly blind and the deck handed you its best anyway. Fortune like this is given, never earned, so enjoy it.',
+      high: ['Today was luck, plain and simple. The questions gave you little to work with and the deck handed you its best anyway. Fortune like this is given, never earned, so enjoy it.',
         'The questions got the better of you and the cards did not mind at all. This one is pure fortune, and it is yours.'],
-      mid: ['You went mostly by feel and the deck met you kindly. Every answer you learned today buys a clearer look tomorrow.',
-        'Mostly blind, and still a steady hand. The deck was on your side more than the questions were.'],
-      low: ['Tricky questions and a deep deck is the hard combination, and you finished the reading anyway. Every answer you saw today is a glimpse you will earn next time.',
+      mid: ['You had few chips and the deck met you kindly. Every answer you learned today buys more room tomorrow.',
+        'Few chips, and still a steady hand. The deck was on your side more than the questions were.'],
+      low: ['Tricky questions and a deep deck is the hard combination, and you finished the reading anyway. Every answer you saw today is a chip you will win next time.',
         'The deck kept its bright cards hidden and the questions kept their answers. That is one day. The shuffle is new tomorrow, and you know more than you did this morning.']
     }
   };
   function band3(value, lowMax, highMin) { return value <= lowMax ? 'low' : value >= highMin ? 'high' : 'mid'; }
 
   // Build everything the result screen shows. `game` is the saved state from app.js:
-  // { mode, date, sign, seedKey, rounds: [{ glimpses, seen: [i], pick: i }] }
+  // { mode, date, sign, seedKey, rounds: [{ earned, turned: [cardIndex, in the order turned], pick, forced }] }
   function summarize(game, hands) {
     hands = hands || dealHands(game.seedKey);
     var sign = SIGN_BY_ID[game.sign];
     var picks = game.rounds.map(function (r, i) { return hands[i][r.pick]; });
-    var how = game.rounds.map(howChosen);
-    var insight = game.rounds.reduce(function (s, r) { return s + r.glimpses; }, 0);
+    var firsts = game.rounds.map(function (r, i) { return hands[i][r.turned[0]]; });
+    var how = game.rounds.map(howKept);
+    var insight = game.rounds.reduce(function (s, r) { return s + r.earned; }, 0);
+    var passes = game.rounds.reduce(function (s, r) { return s + r.turned.length - 1; }, 0);
+    var chipsIn = insight + CONFIG.ROUNDS * CONFIG.CHIPS_PER_HAND;
     var score = scoreSpread(picks, game.sign);
+    // What the reading would have been with no passes at all: the first card turned in each hand.
+    // The gap between this and the real score is what the player's chips did.
+    var firstScore = scoreSpread(firsts, game.sign);
     var odds = deckOdds(hands, game.sign);
     var stand = standing(odds, score.total);
     var tier = TIERS[score.tier];
     var rng = rngFrom('read|' + game.seedKey + '|' + picks.map(function (p) { return p.id + (p.rev ? 'r' : 'u'); }).join(','));
 
     var positions = picks.map(function (p, i) {
-      var f = face(p), hand = hands[i];
+      var f = face(p), hand = hands[i], r = game.rounds[i];
       var brighter = hand.filter(function (c) { return auspice(c) > f.a; }).length;
       var best = hand.slice().sort(function (a, b) { return auspice(b) - auspice(a); })[0];
       return {
@@ -627,9 +678,9 @@
         card: p, name: CARD_BY_ID[p.id].name, reversed: p.rev, label: cardLabel(p),
         auspice: f.a, keywords: f.k, attuned: isAttuned(p, game.sign),
         lead: pick(POSITIONS[i].leads, rng).replace('{k}', kwPhrase(f.k)),
-        text: f.t, how: how[i],
-        // for a card kept unseen: how many of the face-down cards were bright when it was chosen
-        odds: how[i] === 'sight' ? null : (function (t) { return { bright: t.unseenBright, of: t.unseen }; })(handTell(hand, game.rounds[i].seen)),
+        text: f.t, how: how[i], passes: r.turned.length - 1, forced: !!r.forced,
+        // every card turned in this hand, in order; the last one is the card kept
+        path: r.turned.map(function (j) { return { card: hand[j], auspice: auspice(hand[j]), kept: j === r.pick }; }),
         bright: isBright(p),
         rankInHand: brighter + 1, bestInHand: best, wasBrightest: brighter === 0
       };
@@ -655,49 +706,50 @@
     var arc = 'From ' + first(positions[0]) + ', through ' + first(positions[1]) + ', toward ' + first(positions[2]) + '.';
 
     var closeLine = pick(tier.close, rng).replace('{gift}', sign.gift).replace('{Gift}', cap(sign.gift)).replace('{ease}', sign.ease);
-    var sightCount = how.filter(function (h) { return h === 'sight'; }).length;
-    var gambles = how.filter(function (h) { return h === 'gamble'; }).length;
+    var verdict = pick(VERDICTS[band3(insight, 2, 4)][band3(score.tier, 2, 4)], rng);
 
-    // Skill band for the verdict. Earning glimpses and then passing on them twice is trusting the deck, so it reads as luck.
-    var skillBand = band3(insight, 2, 4);
-    if (skillBand === 'high' && gambles >= 2) skillBand = 'mid';
-    var verdict = pick(VERDICTS[skillBand][band3(score.tier, 2, 4)], rng);
-
-    // What fate did with the cards the player could not see.
-    var unseen = positions.filter(function (p) { return p.how !== 'sight'; });
-    var hits = unseen.filter(function (p) { return p.bright; }).length;
-    var luckLine = !unseen.length ? 'You chose all three cards by sight. The luck today was in what the deal put within reach.'
-      : hits === unseen.length ? (unseen.length === 1 ? 'Your one unseen pick came up bright: fate was kind.' : 'All ' + unseen.length + ' of your unseen picks came up bright: fate was very kind.')
-      : hits === 0 ? (unseen.length === 1 ? 'Your one unseen pick came up quiet this time.' : 'Your ' + unseen.length + ' unseen picks came up quiet this time. That is the shuffle.')
-      : hits + ' of your ' + unseen.length + ' unseen picks came up bright.';
+    // The plainest measure of what the player did: first turns alone versus the reading they ended with.
+    var lift = score.total - firstScore.total;
+    var liftLine = passes === 0
+      ? 'You never passed, so this reading is exactly what the deck turned up first. All of it was the deal.'
+      : lift > 0 ? 'Your first turns alone made ' + firstScore.total + ' moons, a ' + TIERS[firstScore.tier].moon + '. Your passes lifted that to ' + score.total + '.'
+      : lift === 0 ? 'Your passes changed the cards and the total came out the same as your first turns: ' + score.total + ' moons.'
+      : 'Your first turns alone would have made ' + firstScore.total + ' moons. The chase cost ' + (-lift) + ' this time. That is the price of nerve, and on other days it pays.';
+    var firstBright = firsts.filter(isBright).length;
+    var openLine = firstBright === 3 ? 'All three of your first turns came up bright: the deck opened kindly.'
+      : firstBright === 0 ? 'None of your first turns came up bright, so anything that shines here you dug for.'
+      : firstBright + ' of your three first turns came up bright.';
 
     return {
       mode: game.mode, date: game.date, dayNo: dayNumber(game.date), sign: sign,
       picks: picks, positions: positions, how: how,
-      insight: insight, insightTitle: INSIGHT_TITLES[insight], sightCount: sightCount,
-      score: score, tier: tier, odds: odds, standing: stand,
+      insight: insight, insightTitle: INSIGHT_TITLES[insight],
+      chipsIn: chipsIn, passes: passes, chipsLeft: chipsIn - passes * CONFIG.PASS_PRICE,
+      score: score, firstScore: firstScore, lift: lift, tier: tier, odds: odds, standing: stand,
       headline: pick(tier.lines, rng),
       arc: arc,
       blend: blend,
       quintessence: quintessence(picks),
       closing: pick(sign.opens, rng) + ' ' + closeLine,
-      verdict: verdict, luckLine: luckLine, unseenPicks: unseen.length, unseenHits: hits
+      verdict: verdict, liftLine: liftLine, openLine: openLine
     };
   }
 
-  // Spoiler-free result for sharing: emoji only, never card names
+  // Spoiler-free result for sharing: moons only, never card names
   // (everyone with the same sign is dealt the same deck).
+  // One row per hand: every card turned, in order. The last moon in a row is the card kept.
   function shareText(sum, url) {
-    var eye = { sight: '👁️', gamble: '🎲', fate: '🎲' };
     var lines = [];
     lines.push((sum.mode === 'daily' ? 'Tarotio #' + sum.dayNo : 'Tarotio practice') + ' · ' + sum.sign.glyph + '︎ ' + sum.sign.name);
     lines.push(MOONS[sum.score.tier].emoji + ' ' + sum.tier.moon + ', ' + sum.tier.title);
-    lines.push(sum.positions.map(function (p) { return eye[p.how] + MOONS[p.auspice].emoji; }).join('  '));
+    sum.positions.forEach(function (p) {
+      lines.push(p.path.map(function (t) { return MOONS[t.auspice].emoji; }).join(''));
+    });
     var stars = '';
     for (var i = 0; i < CONFIG.MAX_INSIGHT; i++) stars += i < sum.insight ? '✦' : '✧';
     lines.push('Insight ' + stars + ' ' + sum.insight + '/' + CONFIG.MAX_INSIGHT);
     lines.push(sum.standing.isBest ? 'The brightest reading in the deck' : 'Brighter than ' + sum.standing.pct + '% of the deck');
-    lines.push('👁️ by sight · 🎲 by fate');
+    lines.push('Each row is a hand. Last moon = the card kept.');
     if (url) lines.push(url);
     return lines.join('\n');
   }
@@ -706,12 +758,13 @@
     CONFIG: CONFIG, TIERS: TIERS, POSITIONS: POSITIONS, INSIGHT_TITLES: INSIGHT_TITLES, POOLS: POOLS,
     rngFrom: rngFrom, shuffle: shuffle, pick: pick,
     dateStr: dateStr, dayNumber: dayNumber, dailySeed: dailySeed,
-    face: face, auspice: auspice, worth: worth, cardLabel: cardLabel, isAttuned: isAttuned, isBright: isBright, handTell: handTell,
+    face: face, auspice: auspice, cardLabel: cardLabel, isAttuned: isAttuned, isBright: isBright,
+    aura: aura, handBoard: handBoard, keepPreview: keepPreview, attunedBonus: attunedBonus,
     roman: roman, kwPhrase: kwPhrase, cap: cap,
     dealHands: dealHands, handIsFair: handIsFair,
     detectPatterns: detectPatterns, scoreSpread: scoreSpread, tierFor: tierFor,
     deckOdds: deckOdds, standing: standing,
-    materialize: materialize, questionsFor: questionsFor, glimpsesFor: glimpsesFor,
-    howChosen: howChosen, quintessence: quintessence, summarize: summarize, shareText: shareText
+    materialize: materialize, questionsFor: questionsFor, chipsFor: chipsFor,
+    howKept: howKept, quintessence: quintessence, summarize: summarize, shareText: shareText
   };
 });

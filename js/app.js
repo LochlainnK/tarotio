@@ -4,10 +4,13 @@
  *
  * Game state (saved to localStorage after every action so a refresh cannot re-roll):
  *   game = {
- *     v, mode: 'daily' | 'practice', date, sign, seedKey,
- *     round: 0-2, phase: 'question' | 'answered' | 'glimpse' | 'choose' | 'reveal', done,
- *     rounds: [{ tries: [optionIndex], solved: true|false|null, glimpses: 0-2, seen: [cardIndex], pick: cardIndex|null }]
+ *     v: 2, mode: 'daily' | 'practice', date, sign, seedKey,
+ *     round: 0-2, phase: 'question' | 'answered' | 'turn' | 'decide' | 'reveal', done,
+ *     chips: chips in hand right now,
+ *     rounds: [{ tries: [optionIndex], solved: true|false|null, earned: 0-2,
+ *                turned: [cardIndex, in the order turned], pick: cardIndex|null, forced: bool }]
  *   }
+ * A turned card that is not the pick has been passed (burned).
  */
 (function () {
   'use strict';
@@ -16,6 +19,7 @@
   var MOONS = D.MOONS, CFG = E.CONFIG;
 
   var STORE_KEY = 'tarotio.v1';
+  var GAME_VERSION = 2;
   // Set this to the public address after launch so shared results link back to the game.
   var SHARE_URL = '';
 
@@ -25,8 +29,35 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
   /* ------------------------------ storage ----------------------------- */
+
+  var PHASES = ['question', 'answered', 'turn', 'decide', 'reveal'];
+  var MAX_CHIPS = CFG.ROUNDS * (CFG.CHIPS_PER_HAND + CFG.CHIPS_FIRST_TRY);
+
+  // A saved game is only resumed if every field is in range. Anything else is dropped and the day starts clean.
+  function validGame(g) {
+    try {
+      if (!g || g.v !== GAME_VERSION || (g.mode !== 'daily' && g.mode !== 'practice')) return false;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(g.date) || !D.SIGN_BY_ID[g.sign] || typeof g.seedKey !== 'string') return false;
+      if (!(g.round >= 0 && g.round < CFG.ROUNDS) || PHASES.indexOf(g.phase) === -1) return false;
+      if (!Number.isInteger(g.chips) || g.chips < 0 || g.chips > MAX_CHIPS) return false;
+      if (!Array.isArray(g.rounds) || g.rounds.length !== CFG.ROUNDS) return false;
+      var inHand = function (x) { return Number.isInteger(x) && x >= 0 && x < CFG.HAND_SIZE; };
+      return g.rounds.every(function (r, i) {
+        if (!r || !Array.isArray(r.tries) || !Array.isArray(r.turned)) return false;
+        if (!(r.earned >= 0 && r.earned <= CFG.CHIPS_FIRST_TRY)) return false;
+        if (!r.turned.every(inHand) || r.turned.length > CFG.HAND_SIZE) return false;
+        if (r.turned.some(function (x, k) { return r.turned.indexOf(x) !== k; })) return false;
+        var finished = i < g.round || g.done || (i === g.round && g.phase === 'reveal');
+        if (finished) return r.turned.length > 0 && r.pick === r.turned[r.turned.length - 1];
+        if (r.pick !== null) return false;
+        if (i > g.round) return r.turned.length === 0;
+        return g.phase === 'decide' ? r.turned.length > 0 : true;
+      });
+    } catch (e) { return false; }
+  }
 
   function loadStore() {
     var blank = { v: 1, sign: null, daily: null, history: [] };
@@ -47,28 +78,9 @@
     try { window.localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* private mode: play still works */ }
   }
 
-  var PHASES = ['question', 'answered', 'glimpse', 'choose', 'reveal'];
-  // A saved game is only resumed if every field is in range. Anything else is dropped and the day starts clean.
-  function validGame(g) {
-    try {
-      if (!g || g.v !== 1 || (g.mode !== 'daily' && g.mode !== 'practice')) return false;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(g.date) || !D.SIGN_BY_ID[g.sign] || typeof g.seedKey !== 'string') return false;
-      if (!(g.round >= 0 && g.round < CFG.ROUNDS) || PHASES.indexOf(g.phase) === -1) return false;
-      if (!Array.isArray(g.rounds) || g.rounds.length !== CFG.ROUNDS) return false;
-      var inHand = function (x) { return Number.isInteger(x) && x >= 0 && x < CFG.HAND_SIZE; };
-      return g.rounds.every(function (r, i) {
-        if (!r || !Array.isArray(r.tries) || !Array.isArray(r.seen)) return false;
-        if (!(r.glimpses >= 0 && r.glimpses <= CFG.GLIMPSES_FIRST_TRY) || r.seen.length > r.glimpses) return false;
-        if (!r.seen.every(inHand) || (r.pick !== null && !inHand(r.pick))) return false;
-        var finished = i < g.round || g.done || (i === g.round && g.phase === 'reveal');
-        return finished ? r.pick !== null : r.pick === null;
-      });
-    } catch (e) { return false; }
-  }
-
   var store = loadStore();
   var game = null, hands = null, questions = null;
-  var ui = { selected: null, toastTimer: null };
+  var ui = { toastTimer: null };
 
   // QA helper: index.html?date=2026-12-25 plays that day's deck.
   var dateOverride = (function () {
@@ -89,11 +101,16 @@
     return '<svg class="moon" viewBox="0 0 24 24" role="img" aria-label="' + esc(label || MOONS[level].name) + '">' +
       '<circle class="m-dark" cx="12" cy="12" r="9"/>' + lit + '<circle class="m-ring" cx="12" cy="12" r="9"/></svg>';
   }
-  function suitSVG(suit) {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#suit-' + suit + '"/></svg>';
-  }
-  function eyeSVG() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-eye"/></svg>'; }
+  function icon(id) { return '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#' + id + '"/></svg>'; }
+  function suitSVG(suit) { return icon('suit-' + suit); }
+  function auraSVG(aura) { return aura === 'major' ? icon('i-star') : suitSVG(aura); }
+  function auraName(aura) { return aura === 'major' ? 'Major' : D.SUITS[aura].name; }
   function sym(glyph) { return '<span class="sym" aria-hidden="true">' + glyph + '︎</span>'; }
+  function chipsHTML(n, cls) {
+    var out = '<span class="chips' + (cls ? ' ' + cls : '') + '" aria-hidden="true">';
+    for (var i = 0; i < n; i++) out += '<span class="chip"></span>';
+    return out + '</span>';
+  }
 
   // Where the suit marks sit on a numbered card, like the pips on a playing card.
   var PIPS = {
@@ -132,6 +149,11 @@
     }
     return '<span class="' + cls + (c.rev ? ' is-rev' : '') + '">' + inner + '<span class="f-title">' + esc(card.name) + '</span></span>';
   }
+  // The back of a card: its suit mark shows, its face never does.
+  function backHTML(c) {
+    var a = E.aura(c);
+    return '<span class="aura aura-' + a + '">' + auraSVG(a) + '</span>';
+  }
   function staticCard(c) {
     return '<span class="pcard is-static" role="img" aria-label="' + esc(E.cardLabel(c)) + '"><span class="pc-side pc-front">' + faceHTML(c) + '</span></span>';
   }
@@ -140,7 +162,7 @@
     return moonSVG(a) + '<span class="kw-name">' + MOONS[a].name + '</span><span class="scale">' + a + '/5</span>';
   }
   function attunedTag(c, sign) {
-    return E.isAttuned(c, sign) ? '<span class="plus" title="A card in your element shines one step brighter">+1 ' + D.SIGN_BY_ID[sign].element + '</span>' : '';
+    return E.isAttuned(c, sign) ? '<span class="plus">+' + E.attunedBonus(D.SIGN_BY_ID[sign].suit) + ' ' + D.SIGN_BY_ID[sign].element + '</span>' : '';
   }
 
   function toast(msg) {
@@ -161,6 +183,24 @@
     ['intro', 'play', 'reading'].forEach(function (v) { $('view-' + v).hidden = v !== view; });
   }
   function toTop() { try { window.scrollTo(0, 0); } catch (e) { /* ignore */ } }
+  function focusOn(el) {
+    if (!el) return;
+    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+  }
+  function reveal(el) {
+    if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* older browsers */ } }
+  }
+
+  // Put the top of the table at the top of the screen when the screen is short,
+  // so the spread, the hand and the keep-or-pass buttons are all visible at once.
+  function frameTable() {
+    var el = $('view-play');
+    if (!el.scrollIntoView) return;
+    try {
+      if (window.innerHeight < 900) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      else el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } catch (e) { /* older browsers */ }
+  }
 
   /* ----------------------------- masthead ----------------------------- */
 
@@ -185,7 +225,8 @@
     var s = store.sign && D.SIGN_BY_ID[store.sign];
     if (!s) return 'Your sign sets your deck, your own Major Arcana card, and the suit that shines brighter for you.';
     return '<b>' + s.name + '</b> is a ' + s.modality.toLowerCase() + ' ' + s.element.toLowerCase() + ' sign. Your card is <b>' +
-      D.CARD_BY_ID[s.card].name + '</b>, and every <b>' + D.SUITS[s.suit].name + '</b> card shines one step brighter for you.';
+      D.CARD_BY_ID[s.card].name + '</b>, and every <b>' + D.SUITS[s.suit].name + '</b> card shines ' +
+      (E.attunedBonus(s.suit) === 1 ? 'one step' : 'two steps') + ' brighter for you.';
   }
   function renderSigns() {
     $('intro-signs').innerHTML = signGridHTML();
@@ -205,7 +246,7 @@
     store.sign = id;
     saveStore();
     renderSigns();
-    var daily = store.daily && store.daily.date === today ? store.daily : null;
+    var daily = todaysDaily();
     if (changed && daily && daily.sign !== id) {
       toast('Today’s cards were dealt for ' + D.SIGN_BY_ID[daily.sign].name + '. ' + D.SIGN_BY_ID[id].name + ' starts with the next deal.');
     }
@@ -215,6 +256,15 @@
 
   function cur() { return game.rounds[game.round]; }
   function position() { return E.POSITIONS[game.round]; }
+  function hand() { return hands[game.round]; }
+  function upIndex() { var r = cur(); return game.phase === 'decide' ? r.turned[r.turned.length - 1] : null; }
+  function keptSoFar() {
+    var out = [];
+    for (var i = 0; i < game.round; i++) out.push(hands[i][game.rounds[i].pick]);
+    return out;
+  }
+  function canPass() { var r = cur(); return game.chips >= CFG.PASS_PRICE && r.turned.length < CFG.HAND_SIZE; }
+
   function hydrate() {
     hands = E.dealHands(game.seedKey);
     questions = E.questionsFor(game);
@@ -229,9 +279,9 @@
     var seedKey = mode === 'daily' ? E.dailySeed(today, store.sign)
       : 'practice|' + Date.now().toString(36) + Math.floor(Math.random() * 1e9).toString(36);
     game = {
-      v: 1, mode: mode, date: today, sign: store.sign, seedKey: seedKey,
-      round: 0, phase: 'question', done: false,
-      rounds: [0, 1, 2].map(function () { return { tries: [], solved: null, glimpses: 0, seen: [], pick: null }; })
+      v: GAME_VERSION, mode: mode, date: today, sign: store.sign, seedKey: seedKey,
+      round: 0, phase: 'question', done: false, chips: 0,
+      rounds: [0, 1, 2].map(function () { return { tries: [], solved: null, earned: 0, turned: [], pick: null, forced: false }; })
     };
     hydrate();
     persist();
@@ -257,13 +307,11 @@
     var r = cur(), q = questions[game.round];
     if (game.phase !== 'question' || r.tries.indexOf(i) !== -1) return;
     r.tries.push(i);
-    if (i === q.answer) {
-      r.solved = true;
-      r.glimpses = E.glimpsesFor(r.tries.length);
-      game.phase = 'answered';
-    } else if (r.tries.length >= CFG.MAX_TRIES) {
-      r.solved = false;
-      r.glimpses = 0;
+    var settled = false;
+    if (i === q.answer) { r.solved = true; r.earned = E.chipsFor(r.tries.length); settled = true; }
+    else if (r.tries.length >= CFG.MAX_TRIES) { r.solved = false; r.earned = 0; settled = true; }
+    if (settled) {
+      game.chips += CFG.CHIPS_PER_HAND + r.earned;   // the Reader's chip, plus whatever the answer won
       game.phase = 'answered';
     }
     persist();
@@ -271,32 +319,39 @@
   }
   function afterAnswer() {
     if (game.phase !== 'answered') return;
-    game.phase = cur().glimpses > 0 ? 'glimpse' : 'choose';
+    game.phase = 'turn';
     persist();
     renderPlay(false);
     focusOn($('hand').querySelector('.pcard:not(:disabled)'));
-    reveal($('spread'));
+    frameTable();
   }
-  function peek(i) {
+  // Turn a face-down card. With a chip in hand the player then decides; without one, the card is theirs.
+  function turn(i) {
     var r = cur();
-    if (game.phase !== 'glimpse' || r.seen.indexOf(i) !== -1) return;
-    r.seen.push(i);
-    if (r.seen.length >= r.glimpses) game.phase = 'choose';
+    if (game.phase !== 'turn' || r.turned.indexOf(i) !== -1) return;
+    r.turned.push(i);
+    if (canPass()) game.phase = 'decide';
+    else { r.pick = i; r.forced = true; game.phase = 'reveal'; }
     persist();
-    renderPlay(false);
-  }
-  function select(i) {
-    if (game.phase !== 'choose') return;
-    ui.selected = ui.selected === i ? null : i;
     renderPlay(true);
   }
   function keep() {
-    if (game.phase !== 'choose' || ui.selected === null) return;
-    cur().pick = ui.selected;
-    ui.selected = null;
+    var r = cur();
+    if (game.phase !== 'decide') return;
+    r.pick = r.turned[r.turned.length - 1];
+    r.forced = false;
     game.phase = 'reveal';
     persist();
     renderPlay(true);
+  }
+  // Pay a chip, burn the card, turn another.
+  function pass() {
+    if (game.phase !== 'decide' || !canPass()) return;
+    game.chips -= CFG.PASS_PRICE;
+    game.phase = 'turn';
+    persist();
+    renderPlay(false);
+    focusOn($('hand').querySelector('.pcard:not(:disabled)'));
   }
   function nextRound() {
     if (game.phase !== 'reveal') return;
@@ -317,7 +372,7 @@
       var sum = E.summarize(game, hands);
       store.history.push({
         date: game.date, sign: game.sign, insight: sum.insight, tier: sum.score.tier,
-        total: sum.score.total, pct: sum.standing.pct, sight: sum.sightCount
+        total: sum.score.total, pct: sum.standing.pct, passes: sum.passes, first: sum.firstScore.total
       });
       saveStore();
     }
@@ -328,7 +383,6 @@
   /* ------------------------------ play view --------------------------- */
 
   function showPlay(deal) {
-    ui.selected = null;
     show('play');
     renderMasthead();
     buildHand(deal);
@@ -336,10 +390,10 @@
   }
 
   function buildHand(deal) {
-    var html = '';
+    var h = hand(), html = '';
     for (var i = 0; i < CFG.HAND_SIZE; i++) {
-      html += '<div class="hand-slot"><button type="button" class="pcard" data-i="' + i + '" style="--i:' + i + '">' +
-        '<span class="pc-flip"><span class="pc-side pc-back"></span><span class="pc-side pc-front"></span></span></button>' +
+      html += '<div class="hand-slot"><button type="button" class="pcard' + (E.isAttuned(h[i], game.sign) ? ' is-yours' : '') + '" data-i="' + i + '" style="--i:' + i + '">' +
+        '<span class="pc-flip"><span class="pc-side pc-back">' + backHTML(h[i]) + '</span><span class="pc-side pc-front"></span></span></button>' +
         '<span class="cap" data-cap="' + i + '"></span></div>';
     }
     var el = $('hand');
@@ -351,40 +405,12 @@
   // cards never move under the player's finger when the panel's text changes height.
   function placeReader() {
     var play = $('view-play'), reader = $('reader');
-    var table = game.phase === 'glimpse' || game.phase === 'choose' || game.phase === 'reveal';
-    var before = table ? $('seen-wrap') : $('tell');
+    var table = game.phase === 'turn' || game.phase === 'decide' || game.phase === 'reveal';
+    var before = table ? $('seen-wrap') : $('hud');
     if (reader.nextElementSibling !== before) play.insertBefore(reader, before);
     play.classList.toggle('is-table', table);
   }
 
-  function renderTell() {
-    var el = $('tell');
-    var r = cur(), t = E.handTell(hands[game.round], r.seen);
-    if (game.phase === 'reveal') {
-      var kept = E.isBright(hands[game.round][r.pick]);
-      el.innerHTML = '<span class="tell-k">The tell</span><span>' +
-        (t.bright === 1 ? '1 of these five cards was bright' : t.bright + ' of these five cards were bright') +
-        ' <span class="tell-note">(Gibbous or Full Moon)</span>. ' +
-        (kept ? (t.bright === 1 ? 'You kept it.' : 'You kept one of them.') : 'Yours is one of the quieter ' + (t.size - t.bright) + '.') + '</span>';
-      el.hidden = false;
-      return;
-    }
-    var html = '<span class="tell-k">The tell</span><span>' +
-      (t.bright === 1 ? '1 of these five cards is bright' : t.bright + ' of these five cards are bright') +
-      ' <span class="tell-note">(Gibbous or Full Moon)</span>. ';
-    if (r.seen.length) {
-      html += 'Still face down: ' + t.unseen + ' cards, ' + (t.unseenBright ? t.unseenBright + ' of them bright' : 'none of them bright') + '.';
-    } else {
-      html += 'Picked blind, the odds of a bright card are ' + t.bright + ' in ' + t.size + '.';
-    }
-    el.innerHTML = html + '</span>';
-    el.hidden = false;
-  }
-
-  function focusOn(el) {
-    if (!el) return;
-    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
-  }
   // If the control the player was on has gone (the panel was redrawn), put focus on the next thing to do.
   function restoreFocus() {
     var a = document.activeElement;
@@ -392,14 +418,11 @@
     focusOn($('reader').querySelector('.btn.primary') || $('reader').querySelector('.opt:not(:disabled)') ||
       $('hand').querySelector('.pcard:not(:disabled)'));
   }
-  function reveal(el) {
-    if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* older browsers */ } }
-  }
 
   function renderPlay(focusPrimary) {
     placeReader();
     renderSpread();
-    renderTell();
+    renderHud();
     renderReader();
     syncHand();
     renderSeen();
@@ -408,6 +431,7 @@
     else restoreFocus();
   }
 
+  // The spread so far: three places, and the running count of moons against the tiers.
   function renderSpread() {
     $('spread').innerHTML = E.POSITIONS.map(function (p, i) {
       var r = game.rounds[i];
@@ -417,17 +441,37 @@
       var moon = filled ? moonSVG(E.auspice(hands[i][r.pick])) : '';
       return '<div class="' + cls + '">' + body + '<span class="slot-label">' + p.name + moon + '</span></div>';
     }).join('');
+
+    var kept = keptSoFar();
+    if (game.phase === 'reveal') kept = kept.concat([hand()[cur().pick]]);
+    var total = kept.length ? E.scoreSpread(kept, game.sign).total : 0;
+    var marks = [3, 4, 5].map(function (t) {
+      var reached = total >= E.TIERS[t].min;
+      return '<span class="tally-mark' + (reached ? ' is-reached' : '') + '">' + moonSVG(t, E.TIERS[t].moon) + E.TIERS[t].min + '</span>';
+    }).join('');
+    $('tally').innerHTML = '<span class="tally-now"><b>' + total + '</b> ' + (total === 1 ? 'moon' : 'moons') + ' so far</span>' +
+      '<span class="tally-goals" title="Moons needed for a Half, Gibbous and Full Moon reading">' + marks + '</span>';
+  }
+
+  // Above the hand: the moons this hand holds (not which card is which), and the chips in hand.
+  function boardHTML(states) {
+    return E.handBoard(hand(), cur().turned, cur().pick, upIndex()).filter(function (e) {
+      return !states || states.indexOf(e.state) !== -1;
+    }).map(function (e) {
+      return '<span class="bm is-' + e.state + '">' + moonSVG(e.a, MOONS[e.a].name + (e.state === 'down' ? ', still face down' : ', ' + e.state)) + '</span>';
+    }).join('');
+  }
+  function renderHud() {
+    $('hud').innerHTML =
+      '<div class="hud-part"><span class="hud-k"><span class="hud-wide">This hand </span>holds</span><span class="board">' + boardHTML() + '</span></div>' +
+      '<div class="hud-part hud-chips"><span class="hud-k">Chips</span>' + chipsHTML(game.chips ? 1 : 0) +
+      '<b class="hud-n" aria-label="' + plural(game.chips, 'chip', 'chips') + ' in hand">' + game.chips + '</b></div>';
   }
 
   function eyebrowHTML() {
     var p = position();
     return '<p class="eyebrow">Hand ' + (game.round + 1) + ' of ' + CFG.ROUNDS + ' · the ' + p.name +
       '<span class="eyebrow-sub">' + p.blurb + '</span></p>';
-  }
-  function chipsHTML(total, used) {
-    var out = '<span class="chips" aria-hidden="true">';
-    for (var i = 0; i < total; i++) out += '<span class="chip' + (i < used ? ' is-spent' : '') + '">' + eyeSVG() + '</span>';
-    return out + '</span>';
   }
   function questionHTML(locked) {
     var q = questions[game.round], r = cur();
@@ -442,67 +486,82 @@
     }).join('');
     return '<h2 class="question">' + esc(q.q) + '</h2><div class="options">' + opts + '</div>';
   }
-  function oddsText(t) { return t.unseenBright + ' in ' + t.unseen; }
-  function howLine(how, t, bright) {
-    if (how === 'sight') return 'Chosen by sight: you knew what you were keeping.';
-    var lead = how === 'gamble' ? 'A gamble: you passed on what you saw and trusted the deck'
-      : 'Left to fate: you chose without a glimpse';
-    return lead + ', at ' + oddsText(t) + ' for a bright card.' + (bright ? ' Fate came through.' : '');
-  }
-  function attunedHint(c, sign) {
-    return E.isAttuned(c, sign) ? '<p class="hint"><span>+1 ' + D.SIGN_BY_ID[sign].element +
-      ': a card in your element shines one step brighter for you.</span></p>' : '';
+  function howLine(r) {
+    var how = E.howKept(r), n = r.turned.length - 1;
+    if (how === 'first') return 'Kept on the first turn, with a chip still in hand.';
+    if (how === 'fate') return 'Left to fate: with no chip to pass, the first card turned was yours.';
+    if (how === 'dug') return 'Found after ' + plural(n, 'pass', 'passes') + ', and kept by choice.';
+    return r.turned.length === CFG.HAND_SIZE ? 'The last card in the hand, after ' + plural(n, 'pass', 'passes') + '.'
+      : 'After ' + plural(n, 'pass', 'passes') + ' the chips ran out, so this card stayed.';
   }
   var NEXT_LABEL = ['Deal the Present', 'Deal the Future', 'Read my three cards'];
 
   function renderReader() {
-    var r = cur(), q = questions[game.round], hand = hands[game.round], p = position();
-    var tell = E.handTell(hand, r.seen);
+    var r = cur(), q = questions[game.round], h = hand(), p = position(), sign = D.SIGN_BY_ID[game.sign];
     var html = '';
     if (game.phase === 'question') {
       html = eyebrowHTML() + questionHTML(false) +
-        '<p class="hint">' + (r.tries.length ? 'Not that one. One more try, for one glimpse.'
-          : 'Right first time earns two glimpses of this hand. A second try earns one.') + '</p>';
+        '<p class="hint"><span>' + (r.tries.length ? 'Not that one. One more try, for one chip.'
+          : 'Right first time wins two chips. A second try wins one. Chips let you pass on a card you turn.') + '</span></p>';
     } else if (game.phase === 'answered') {
       var head = r.solved ? (r.tries.length === 1 ? 'Right, first time.' : 'Right, on the second try.')
         : 'The answer was “' + esc(q.options[q.answer]) + '”.';
-      var earned = r.glimpses === 2 ? 'You earned two glimpses of this hand.'
-        : r.glimpses === 1 ? 'You earned one glimpse of this hand.'
-        : 'No glimpses this hand, so this card is left to fate. The tell gives your odds: ' + tell.bright + ' in ' + tell.size + ' for a bright card.';
+      var won = r.earned === 2 ? 'Two chips for your answer and one from the Reader.'
+        : r.earned === 1 ? 'One chip for your answer and one from the Reader.'
+        : 'One chip from the Reader, as with every hand.';
       html = eyebrowHTML() + questionHTML(true) +
         '<p class="why"><b>' + head + '</b> ' + esc(q.why) + '</p>' +
-        '<p class="hint">' + (r.glimpses ? chipsHTML(r.glimpses, 0) : '') + '<span>' + earned + '</span></p>' +
-        '<button type="button" class="btn primary" data-act="after-answer">' +
-        (r.glimpses === 2 ? 'Use your glimpses' : r.glimpses === 1 ? 'Use your glimpse' : 'Choose a card') + '</button>';
-    } else if (game.phase === 'glimpse') {
-      var left = r.glimpses - r.seen.length;
-      html = eyebrowHTML() + '<h2 class="prompt">Turn a card face up.</h2>' +
-        '<p class="hint">' + chipsHTML(r.glimpses, r.seen.length) + '<span>' + (left === 1 ? 'One glimpse left.' : left + ' glimpses left.') +
-        ' Tap any face-down card.</span></p>';
-    } else if (game.phase === 'choose') {
-      if (ui.selected === null) {
-        html = eyebrowHTML() + '<h2 class="prompt">Keep one card for your ' + p.name + '.</h2>' +
-          '<p class="hint"><span>' + (r.seen.length ? 'Any of the five, seen or unseen. Tap a card to pick it up.'
-            : 'All five are face down. Go by feel, and tap a card to pick it up.') + '</span></p>';
+        '<p class="hint">' + chipsHTML(CFG.CHIPS_PER_HAND + r.earned, 'is-new') + '<span>' + won + ' You hold ' + plural(game.chips, 'chip', 'chips') + '.</span></p>' +
+        '<button type="button" class="btn primary" data-act="after-answer">Play the hand</button>';
+    } else if (game.phase === 'turn') {
+      var passed = r.turned.length;
+      var line;
+      if (!passed && game.chips > 0) {
+        line = 'Then keep it, or pay a chip to pass and turn another. A passed card is gone for good.' +
+          (game.round === 0 ? ' The mark on each back is the card’s suit: ' + D.SUITS[sign.suit].name + ' are yours, worth +' + E.attunedBonus(sign.suit) + '.' : '');
+      } else if (!passed) {
+        line = 'No chips this hand, so the card you turn is the card you keep. Let the suits guide you.';
+      } else if (game.chips > 0) {
+        line = 'You hold ' + plural(game.chips, 'chip', 'chips') + '. The moons above show what is still face down.';
       } else {
-        var c = hand[ui.selected], seen = r.seen.indexOf(ui.selected) !== -1;
-        html = eyebrowHTML() + (seen
-          ? '<h2 class="prompt">' + esc(E.cardLabel(c)) + '</h2><p class="kw">' + moonLine(c) + attunedTag(c, game.sign) + '<span>' + esc(E.face(c).k) + '</span></p>' + attunedHint(c, game.sign)
-          : '<h2 class="prompt">Card ' + (ui.selected + 1) + ', unseen</h2><p class="hint"><span>Keeping it leaves your ' + p.name + ' to the deck. ' +
-            (tell.unseenBright ? tell.unseenBright + ' of the ' + tell.unseen + ' face-down cards ' + (tell.unseenBright === 1 ? 'is' : 'are') + ' bright.'
-              : 'None of the face-down cards is bright, so the brightest cards are the ones you have seen.') + '</span></p>') +
-          '<button type="button" class="btn primary" data-act="keep">Keep this card</button>';
+        line = 'That was your last chip, so the next card you turn is the one you keep.';
       }
+      html = eyebrowHTML() + '<h2 class="prompt">' + (passed ? 'Turn another card.' : 'Turn a card for your ' + p.name + '.') + '</h2>' +
+        '<p class="hint"><span>' + line + '</span></p>';
+    } else if (game.phase === 'decide') {
+      var c = h[upIndex()];
+      var pre = E.keepPreview(keptSoFar(), c, game.sign, CFG.ROUNDS - 1 - game.round);
+      var notes = pre.notes.map(function (n) {
+        return '<li><span class="bonus">+' + n.bonus + '</span>' + esc(n.title) + (n.poker ? ' <span class="poker">' + esc(n.poker) + '</span>' : '') + '</li>';
+      }).join('') + pre.hopes.map(function (t) { return '<li class="hope">' + esc(t) + '</li>'; }).join('');
+      var left = h.length - r.turned.length, mine = E.auspice(c), brighter = 0, dimmer = 0;
+      h.forEach(function (x, i) {
+        if (r.turned.indexOf(i) !== -1) return;
+        if (E.auspice(x) > mine) brighter++; else if (E.auspice(x) < mine) dimmer++;
+      });
+      var same = left - brighter - dimmer;
+      var risk = 'Of the ' + left + ' still face down, ' +
+        (brighter ? plural(brighter, 'is', 'are') + ' brighter' : 'none is brighter') + ', ' +
+        (dimmer ? plural(dimmer, 'is', 'are') + ' dimmer' : 'none is dimmer') +
+        (same ? ' and ' + plural(same, 'is', 'are') + ' the same' : '') + '.';
+      html = eyebrowHTML() + '<h2 class="prompt">' + esc(E.cardLabel(c)) + '</h2>' +
+        '<p class="kw">' + moonLine(c) + '<span>' + esc(E.face(c).k) + '</span></p>' +
+        (notes ? '<ul class="notes">' + notes + '</ul>' : '') +
+        '<p class="outcome">Keep it and your spread comes to <b>' + plural(pre.total, 'moon', 'moons') + '</b>' +
+        (pre.last ? ': a <b>' + E.TIERS[pre.tier].moon + '</b> reading.' : '.') + '</p>' +
+        '<div class="choice">' +
+        '<button type="button" class="btn primary" data-act="keep">Keep this card</button>' +
+        '<button type="button" class="btn ghost" data-act="pass">Pass ' + chipsHTML(CFG.PASS_PRICE) + '<span class="pass-cost">1 chip</span></button>' +
+        '</div>' +
+        '<p class="hint"><span>A pass burns this card for good. ' + risk + '</span></p>';
     } else if (game.phase === 'reveal') {
-      var pc = hand[r.pick], a = E.auspice(pc);
-      var brighter = hand.filter(function (x) { return E.auspice(x) > a; });
-      var best = hand.slice().sort(function (x, y) { return E.auspice(y) - E.auspice(x); })[0];
-      var rank = brighter.length === 0 ? 'Nothing in this hand was brighter.' : 'The brightest in this hand was ' + E.cardLabel(best) + '.';
+      var pc = h[r.pick], a = E.auspice(pc);
+      var best = h.slice().sort(function (x, y) { return E.auspice(y) - E.auspice(x); })[0];
+      var rank = E.auspice(best) <= a ? 'Nothing in this hand was brighter.' : 'The brightest in this hand was ' + E.cardLabel(best) + '.';
       html = '<p class="eyebrow">Your ' + p.name + ' card<span class="eyebrow-sub">' + p.blurb + '</span></p>' +
         '<h2 class="prompt">' + esc(E.cardLabel(pc)) + '</h2>' +
         '<p class="kw">' + moonLine(pc) + attunedTag(pc, game.sign) + '<span>' + esc(E.face(pc).k) + '</span></p>' +
-        attunedHint(pc, game.sign) +
-        '<p class="how">' + howLine(E.howChosen(r), tell, E.isBright(pc)) + ' ' + esc(rank) + '</p>' +
+        '<p class="how">' + howLine(r) + ' ' + esc(rank) + '</p>' +
         '<button type="button" class="btn primary" data-act="next">' + NEXT_LABEL[game.round] + '</button>';
     }
     $('reader').innerHTML = html;
@@ -510,67 +569,92 @@
 
   // Bring the five card buttons in line with the state, without rebuilding them (so flips animate).
   function syncHand() {
-    var r = cur(), hand = hands[game.round], phase = game.phase;
+    var r = cur(), h = hand(), phase = game.phase, up = upIndex();
     var el = $('hand');
     el.classList.toggle('is-reveal', phase === 'reveal');
     Array.prototype.forEach.call(el.querySelectorAll('.pcard'), function (btn, i) {
-      var c = hand[i];
-      var up = r.seen.indexOf(i) !== -1 || phase === 'reveal';
+      var c = h[i], aura = E.aura(c);
+      var turned = r.turned.indexOf(i) !== -1;
+      var faceUp = turned || phase === 'reveal';
       var front = btn.querySelector('.pc-front');
-      if (up && !front.firstChild) front.innerHTML = faceHTML(c);   // a face is only put in the page once it is revealed
-      var live = (phase === 'glimpse' && !up) || phase === 'choose';
-      btn.classList.toggle('is-up', up);
+      if (faceUp && !front.firstChild) front.innerHTML = faceHTML(c);   // a face is only put in the page once it is revealed
+      var burned = turned && i !== r.pick && i !== up;
+      var live = phase === 'turn' && !turned;
+      btn.classList.toggle('is-up', faceUp);
       btn.classList.toggle('is-live', live);
-      btn.classList.toggle('is-selected', phase === 'choose' && ui.selected === i);
+      btn.classList.toggle('is-selected', i === up);
       btn.classList.toggle('is-picked', phase === 'reveal' && r.pick === i);
-      btn.classList.toggle('is-dim', phase === 'reveal' && r.pick !== i);
+      btn.classList.toggle('is-burned', burned);
+      btn.classList.toggle('is-dim', phase === 'reveal' && !turned);
+      btn.classList.toggle('is-full', turned && !burned && E.auspice(c) === 5);
       btn.disabled = !live;
-      btn.setAttribute('aria-pressed', String(phase === 'choose' && ui.selected === i));
-      btn.setAttribute('aria-label', 'Card ' + (i + 1) + ': ' + (up ? E.cardLabel(c) + ', ' + MOONS[E.auspice(c)].name : 'face down'));
-      el.querySelector('[data-cap="' + i + '"]').innerHTML = up ? moonSVG(E.auspice(c)) + attunedTag(c, game.sign) : '';
+      var yours = E.isAttuned(c, game.sign);
+      btn.setAttribute('aria-label', 'Card ' + (i + 1) + ': ' + (faceUp
+        ? E.cardLabel(c) + ', ' + MOONS[E.auspice(c)].name + (burned ? ', passed' : '')
+        : 'face down, ' + auraName(aura) + (yours ? ', your element' : '')));
+      el.querySelector('[data-cap="' + i + '"]').innerHTML = faceUp
+        ? moonSVG(E.auspice(c)) + (burned ? '<span class="cap-note">passed</span>' : attunedTag(c, game.sign))
+        : '<span class="cap-suit">' + auraName(aura) + '</span>' + (yours ? '<span class="plus">+' + E.attunedBonus(aura) + '</span>' : '');
     });
   }
 
   function renderSeen() {
-    var r = cur(), hand = hands[game.round], reveal = game.phase === 'reveal';
-    var idx = reveal ? [0, 1, 2, 3, 4] : r.seen.slice().sort();
+    var r = cur(), h = hand(), isReveal = game.phase === 'reveal', up = upIndex();
+    var idx = isReveal ? [0, 1, 2, 3, 4] : r.turned.slice();
     var wrap = $('seen-wrap');
     if (!idx.length) { wrap.hidden = true; $('seen').innerHTML = ''; return; }
     wrap.hidden = false;
-    $('seen-h').textContent = reveal ? 'The whole hand' : 'What you have seen';
+    $('seen-h').textContent = isReveal ? 'The whole hand' : 'Turned so far';
     $('seen').innerHTML = idx.map(function (i) {
-      var c = hand[i], kept = reveal && r.pick === i, wasSeen = r.seen.indexOf(i) !== -1;
+      var c = h[i], kept = isReveal && r.pick === i, turned = r.turned.indexOf(i) !== -1;
+      var tag = kept ? '<span class="tag is-kept">Kept</span>'
+        : i === up ? '<span class="tag">Face up</span>'
+        : turned ? '<span class="tag">Passed</span>' : '';
       return '<li class="seen-item' + (kept ? ' is-kept' : '') + '"><span class="seen-n">' + (i + 1) + '</span>' +
         '<span class="seen-main"><span class="seen-name">' + esc(E.cardLabel(c)) + '</span><span class="seen-kw">' + esc(E.face(c).k) + '</span></span>' +
-        '<span class="seen-side">' + (kept ? '<span class="tag is-kept">Kept</span>' : '') +
-        (reveal && wasSeen ? '<span class="tag">' + eyeSVG() + 'Seen</span>' : '') +
-        attunedTag(c, game.sign) + moonSVG(E.auspice(c)) + '</span></li>';
+        '<span class="seen-side">' + tag + attunedTag(c, game.sign) + moonSVG(E.auspice(c)) + '</span></li>';
     }).join('');
   }
 
   /* ----------------------------- reading view ------------------------- */
 
-  var HOW_TAG = {
-    sight: ['is-sight', 'Chosen by sight'],
-    gamble: ['', 'A gamble on an unseen card'],
-    fate: ['', 'Left to fate']
-  };
   function barWidth(n, max) { return n && max ? Math.max(1.5, (n / max) * 100).toFixed(1) : '0'; }
   function ordinal(n) { return n + (['th', 'st', 'nd', 'rd'][n] || 'th'); }
+  function howTag(p) {
+    if (p.how === 'first') return 'Kept on the first turn';
+    if (p.how === 'fate') return 'Left to fate';
+    if (p.how === 'dug') return 'Found after ' + plural(p.passes, 'pass', 'passes');
+    return 'Last turn after ' + plural(p.passes, 'pass', 'passes');
+  }
+  // Every card turned in a hand, as moons. Passed cards are struck through; the kept one is ringed.
+  function pathHTML(p) {
+    return '<span class="path" role="img" aria-label="Cards turned: ' + p.path.map(function (t) {
+      return MOONS[t.auspice].name + (t.kept ? ' kept' : ' passed');
+    }).join(', ') + '">' + p.path.map(function (t) {
+      return '<span class="bm ' + (t.kept ? 'is-kept' : 'is-passed') + '">' + moonSVG(t.auspice) + '</span>';
+    }).join('') + '</span>';
+  }
 
   function readingHTML(sum) {
-    var sign = sum.sign;
+    var sign = sum.sign, st = sum.standing;
     var modeLine = (sum.mode === 'daily' ? 'Day ' + sum.dayNo : 'Practice hand') + ' · ' + sym(sign.glyph) + ' ' + sign.name +
       (sum.mode === 'daily' ? '' : '<span class="eyebrow-sub">not your daily reading</span>');
 
+    var facts = '<li><b>' + sum.insight + '/' + CFG.MAX_INSIGHT + '</b> insight</li>' +
+      '<li>' + (st.isBest ? '<b>Brightest</b> reading in the deck' : 'Brighter than <b>' + st.pct + '%</b> of the deck') + '</li>' +
+      '<li><b>' + sum.passes + '</b> ' + (sum.passes === 1 ? 'pass' : 'passes') + ' made</li>';
+    if (sum.mode === 'daily') {
+      var streak = streaks().current;
+      if (streak > 1) facts += '<li><b>' + streak + '</b> day streak</li>';
+    }
+
     var trio = sum.positions.map(function (p, i) {
-      var tag = HOW_TAG[p.how];
       return '<li class="trio-item" style="--i:' + i + '"><div class="trio-card">' + staticCard(p.card) + '</div><div class="trio-copy">' +
         '<p class="eyebrow">' + p.position + '<span class="eyebrow-sub">' + p.blurb + '</span></p>' +
         '<h3 class="trio-name">' + esc(p.name) + '</h3>' +
         '<p class="trio-meta">' + (p.reversed ? 'Reversed' : 'Upright') + ' · ' + moonSVG(p.auspice) + MOONS[p.auspice].name + ' ' + p.auspice + '/5' + attunedTag(p.card, sign.id) + '</p>' +
         '<p class="trio-lead">' + esc(p.lead) + '</p><p>' + esc(p.text) + '</p>' +
-        '<p class="trio-tag"><span class="tag ' + tag[0] + '">' + (p.how === 'sight' ? eyeSVG() : '') + tag[1] + '</span></p>' +
+        '<p class="trio-tag">' + pathHTML(p) + '<span class="tag' + (p.how === 'dug' ? ' is-sight' : '') + '">' + howTag(p) + '</span></p>' +
         '</div></li>';
     }).join('');
 
@@ -579,26 +663,24 @@
         (p.poker ? '<span class="poker">' + esc(p.poker) + '</span>' : '') +
         (p.bonus ? '<span class="bonus">+' + p.bonus + '</span>' : '') + '</p><p>' + esc(p.text) + '</p></li>';
     }).join('');
+    var quint = sum.quintessence;
 
     var pips = '';
     for (var i = 0; i < CFG.MAX_INSIGHT; i++) pips += '<span class="pip' + (i < sum.insight ? ' is-on' : '') + '"></span>';
     var scale = '';
     for (var t = 1; t <= 5; t++) scale += '<span class="' + (t === sum.score.tier ? 'is-here' : '') + '">' + moonSVG(t, E.TIERS[t].moon) + '</span>';
 
-    var st = sum.standing;
     var standLine = st.isBest ? 'This was the brightest reading the deck held today.'
       : st.isWorst ? 'Every other path through this deck was at least as bright. That is the shuffle, and tomorrow brings a new one.'
       : 'Brighter than ' + st.pct + '% of the readings this deck could have dealt.';
 
     var rounds = sum.positions.map(function (p, idx) {
       var r = game.rounds[idx];
-      var qLine = r.solved ? (r.tries.length === 1 ? 'Question right first time' : 'Question right on the second try') : 'Question not solved';
-      var gLine = r.glimpses === 2 ? 'two glimpses' : r.glimpses === 1 ? 'one glimpse' : 'no glimpses';
+      var qLine = r.solved ? (r.tries.length === 1 ? 'Question right first time, two chips won' : 'Question right on the second try, one chip won') : 'Question not solved';
       var rankLine = p.wasBrightest ? 'the brightest of its five' : ordinal(p.rankInHand) + ' brightest of its five';
-      var howText = HOW_TAG[p.how][1] + (p.odds ? ' at ' + p.odds.bright + ' in ' + p.odds.of + ' for a bright card' : '');
       return '<li><span class="r-pos">' + p.position + '</span><span class="r-body">' +
-        '<span class="r-card">' + esc(p.label) + moonSVG(p.auspice) + '</span>' +
-        '<span class="r-line">' + qLine + ', ' + gLine + '. ' + howText + ', and ' + rankLine + '.</span></span></li>';
+        '<span class="r-card">' + esc(p.label) + pathHTML(p) + '</span>' +
+        '<span class="r-line">' + qLine + '. ' + howTag(p) + ', and ' + rankLine + '.</span></span></li>';
     }).join('');
 
     var maxCount = Math.max.apply(null, sum.odds.tierCounts);
@@ -610,19 +692,6 @@
         '<span class="odds-track"><span class="odds-bar" style="width:' + barWidth(n, maxCount) + '%"></span></span>' +
         '<span class="odds-n">' + n + (yours ? ' · yours' : '') + '</span></div>';
     }
-    var sightLine = sum.sightCount === 3 ? 'You chose all three cards by sight.'
-      : sum.sightCount === 0 ? 'All three of your cards were left to chance.'
-      : sum.sightCount + ' of your three cards ' + (sum.sightCount === 1 ? 'was' : 'were') + ' chosen by sight, and the rest left to chance.';
-
-    // The story in a few facts, so nobody has to scroll to learn how much was skill and how much was the deck.
-    var facts = '<li><b>' + sum.insight + '/' + CFG.MAX_INSIGHT + '</b> insight</li>' +
-      '<li>' + (st.isBest ? '<b>Brightest</b> reading in the deck' : 'Brighter than <b>' + st.pct + '%</b> of the deck') + '</li>' +
-      '<li><b>' + sum.sightCount + ' of 3</b> chosen by sight</li>';
-    if (sum.mode === 'daily') {
-      var streak = streaks().current;
-      if (streak > 1) facts += '<li><b>' + streak + '</b> day streak</li>';
-    }
-    var quint = sum.quintessence;
 
     var daily = todaysDaily();
     var after = '<button type="button" class="btn primary" data-act="share">Copy result to share</button>';
@@ -648,12 +717,21 @@
       '<p class="closing">' + esc(sum.closing) + '</p></section>' +
 
       '<section class="fell"><h3 class="sec-h">How it fell: your part and the deck’s</h3>' +
-      '<p class="verdict">' + esc(sum.verdict) + '</p><p>' + esc(sum.luckLine) + '</p>' +
+      '<p class="verdict">' + esc(sum.verdict) + '</p>' +
+      '<div class="lift"><div class="lift-side"><span class="mini-h">First turns alone</span>' +
+      '<span class="lift-v">' + moonSVG(sum.firstScore.tier, E.TIERS[sum.firstScore.tier].moon) + '<b>' + sum.firstScore.total + '</b> moons</span>' +
+      '<span class="lift-note">what the deck dealt you</span></div>' +
+      '<span class="lift-arrow" aria-hidden="true">→</span>' +
+      '<div class="lift-side"><span class="mini-h">After your passes</span>' +
+      '<span class="lift-v">' + moonSVG(sum.score.tier, sum.tier.moon) + '<b>' + sum.score.total + '</b> moons</span>' +
+      '<span class="lift-note">what you made of it</span></div></div>' +
+      '<p>' + esc(sum.liftLine) + ' ' + esc(sum.openLine) + '</p>' +
       '<div class="meters">' +
       '<div class="meter"><p class="meter-k">Insight<span>your part</span></p>' +
       '<p class="meter-v">' + sum.insight + '<span class="of">/' + CFG.MAX_INSIGHT + '</span><span class="meter-title">' + sum.insightTitle + '</span></p>' +
-      '<div class="pips" role="img" aria-label="' + sum.insight + ' of ' + CFG.MAX_INSIGHT + ' glimpses earned">' + pips + '</div>' +
-      '<p class="meter-note">Glimpses you earned from the three questions. ' + sightLine + '</p></div>' +
+      '<div class="pips" role="img" aria-label="' + sum.insight + ' of ' + CFG.MAX_INSIGHT + ' chips won from questions">' + pips + '</div>' +
+      '<p class="meter-note">Chips you won from the three questions. With the Reader’s three you held ' + sum.chipsIn + ', spent ' + sum.passes +
+      ' on passes and finished with ' + sum.chipsLeft + '.</p></div>' +
       '<div class="meter"><p class="meter-k">Fortune<span>the deck’s part</span></p>' +
       '<p class="meter-v">' + sum.score.total + '<span class="of"> moons</span><span class="meter-title">' + sum.tier.title + '</span></p>' +
       '<div class="moonscale">' + scale + '</div>' +
@@ -661,11 +739,11 @@
       '</div>' +
       '<ul class="rounds">' + rounds + '</ul>' +
       '<div class="odds"><h4 class="mini-h">The ' + sum.odds.count + ' readings this deck could have dealt</h4>' + odds + '</div>' +
-      '<p class="odds-note">Chosen blind, this deck gives a ' + sum.tier.moon + ' reading or brighter about ' + st.blindChance +
-      '% of the time. Glimpses improve those odds. They never make them certain.</p></section>' +
+      '<p class="odds-note">Picking one card blind from each hand, this deck gives a ' + sum.tier.moon + ' reading or brighter about ' + st.blindChance +
+      '% of the time. Chips improve those odds. They never make them certain.</p></section>' +
 
       '<section class="after"><div class="after-row">' + after + '</div>' +
-      '<textarea class="share-text" id="share-text" rows="6" readonly hidden aria-label="Your result, ready to copy"></textarea>' +
+      '<textarea class="share-text" id="share-text" rows="8" readonly hidden aria-label="Your result, ready to copy"></textarea>' +
       '<p class="next" id="next-deck"></p></section>';
   }
 
@@ -751,8 +829,8 @@
       '</div>' +
       '<h3 class="mini-h">Your last ' + (recent.length === 1 ? 'reading' : recent.length + ' readings') + '</h3><ol class="recent">' + recentHTML + '</ol>' +
       '<h3 class="mini-h">How your fortunes have fallen</h3><div class="odds">' + bars + '</div>' +
-      '<p class="meter-note"><b>' + lucky + '</b> lucky ' + (lucky === 1 ? 'break' : 'breaks') + ': bright readings on two glimpses or fewer. ' +
-      '<b>' + earned + '</b> earned: bright readings on four glimpses or more. The number under each moon is that day’s insight.</p>';
+      '<p class="meter-note"><b>' + lucky + '</b> lucky ' + (lucky === 1 ? 'break' : 'breaks') + ': bright readings on two insight or less. ' +
+      '<b>' + earned + '</b> earned: bright readings on four insight or more. The number under each moon is that day’s insight.</p>';
   }
 
   /* -------------------------------- clock ----------------------------- */
@@ -789,6 +867,27 @@
     if ($('dlg-sign').open) closeDialog($('dlg-sign'));
   }
 
+  // 1-4 (or A-D) answer a question. 1-5 turn a card. K keeps, P passes.
+  function onKey(e) {
+    if (!game || game.done || e.ctrlKey || e.metaKey || e.altKey || $('view-play').hidden) return;
+    if (document.querySelector('dialog[open]')) return;
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    var key = String(e.key || '').toLowerCase();
+    if (key.length !== 1) return;
+    var n = '12345'.indexOf(key);
+    if (game.phase === 'question') {
+      if (n === -1) n = 'abcd'.indexOf(key);
+      if (n >= 0 && n < 4) { e.preventDefault(); answer(n); }
+    } else if (game.phase === 'turn' && n >= 0 && n < CFG.HAND_SIZE) {
+      e.preventDefault();
+      turn(n);
+    } else if (game.phase === 'decide' && (key === 'k' || key === 'p')) {
+      e.preventDefault();
+      if (key === 'k') keep(); else pass();
+    }
+  }
+
   function wire() {
     $('intro-signs').addEventListener('click', onSignClick);
     $('dlg-signs').addEventListener('click', onSignClick);
@@ -812,14 +911,13 @@
       var a = act.getAttribute('data-act');
       if (a === 'after-answer') afterAnswer();
       else if (a === 'keep') keep();
+      else if (a === 'pass') pass();
       else if (a === 'next') nextRound();
     });
     $('hand').addEventListener('click', function (e) {
       var btn = e.target.closest('.pcard');
       if (!btn || btn.disabled) return;
-      var i = Number(btn.getAttribute('data-i'));
-      if (game.phase === 'glimpse') peek(i);
-      else if (game.phase === 'choose') select(i);
+      turn(Number(btn.getAttribute('data-i')));
     });
     $('view-reading').addEventListener('click', function (e) {
       var act = e.target.closest('[data-act]');
@@ -830,35 +928,21 @@
       else if (a === 'daily') { var d = todaysDaily(); if (d) { resume(d); toTop(); } else { showIntro(); toTop(); } }
       else if (a === 'new-day') { startDay(); toTop(); }
     });
-  }
-
-  // 1-4 (or A-D) answer a question; 1-5 turn or pick up a card. Buttons handle Enter and Space themselves.
-  function onKey(e) {
-    if (!game || game.done || e.ctrlKey || e.metaKey || e.altKey || $('view-play').hidden) return;
-    if (document.querySelector('dialog[open]')) return;
-    var tag = e.target && e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    var key = String(e.key || '').toLowerCase();
-    if (key.length !== 1) return;
-    var n = '12345'.indexOf(key);
-    if (game.phase === 'question') {
-      if (n === -1) n = 'abcd'.indexOf(key);
-      if (n >= 0 && n < 4) { e.preventDefault(); answer(n); }
-    } else if ((game.phase === 'glimpse' || game.phase === 'choose') && n >= 0 && n < CFG.HAND_SIZE) {
-      e.preventDefault();
-      if (game.phase === 'glimpse') peek(n); else select(n);
-    }
+    document.addEventListener('keydown', onKey);
   }
 
   function renderLegend() {
     var html = '';
     for (var k = 5; k >= 1; k--) html += '<div class="legend-row">' + moonSVG(k) + '<b>' + MOONS[k].name + '</b><span>' + MOONS[k].word + '</span></div>';
     $('moon-legend').innerHTML = html;
+    $('suit-legend').innerHTML = D.SUIT_ORDER.map(function (s) {
+      return '<div class="legend-row"><span class="aura aura-' + s + ' is-inline">' + suitSVG(s) + '</span><b>' + D.SUITS[s].name + '</b><span>' +
+        D.SUITS[s].element + ': ' + D.SUITS[s].domain + '</span></div>';
+    }).join('') + '<div class="legend-row"><span class="aura aura-major is-inline">' + icon('i-star') + '</span><b>Major Arcana</b><span>the 22 named cards: big themes, wide swings</span></div>';
   }
 
   function boot() {
     wire();
-    document.addEventListener('keydown', onKey);
     renderLegend();
     renderSigns();
     var d = todaysDaily();

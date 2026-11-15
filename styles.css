@@ -293,7 +293,7 @@ b { font-weight: 700; }
     repeating-linear-gradient(-45deg, transparent 0 5cqi, var(--back-line) 5cqi 5.9cqi);
   box-shadow: inset 0 0 0 4.5cqi var(--card), inset 0 0 0 5.6cqi var(--back), var(--lift);
 }
-.pc-back::after {
+.pc-back:empty::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -305,6 +305,31 @@ b { font-weight: 700; }
   border: 1.2cqi solid var(--card);
   box-shadow: 0 0 0 1.2cqi var(--back);
 }
+
+/* The suit mark on a card's back. Suits are public; faces are not. */
+.aura {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 46cqi;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--card);
+  border: 1.2cqi solid var(--back);
+  box-shadow: 0 0 0 1.4cqi var(--card);
+  color: var(--suit, var(--ink));
+}
+.aura svg { width: 62%; height: 62%; }
+.aura-wands { --suit: var(--fire); }
+.aura-cups { --suit: var(--water); }
+.aura-swords { --suit: var(--air); }
+.aura-pentacles { --suit: var(--earth); }
+.aura-major { --suit: var(--ink); background: var(--sun); }
+.pcard.is-yours .aura { box-shadow: 0 0 0 1.4cqi var(--card), 0 0 0 4cqi var(--sun); }
+.aura.is-inline { position: static; transform: none; width: 1.6rem; border-width: 1.5px; box-shadow: none; flex: none; }
 
 .pcard.is-live { cursor: pointer; transition: transform 0.18s ease; }
 .pcard.is-live:hover { transform: translateY(-4%); }
@@ -319,7 +344,25 @@ b { font-weight: 700; }
   pointer-events: none;
 }
 .pcard.is-dim { opacity: 0.6; transition: opacity 0.4s ease 0.3s; }
+/* A passed card: face up, set back, struck through. It cannot be taken again. */
+.pcard.is-burned { opacity: 0.5; transform: translateY(7%) scale(0.94); transition: opacity 0.3s ease, transform 0.3s ease; }
+.pcard.is-burned::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: 7cqi;
+  background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--chalk) calc(50% - 1.5px), var(--chalk) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+  pointer-events: none;
+}
 .pcard:disabled { cursor: default; }
+/* a Full Moon card arrives with a glow */
+.pcard.is-full .pc-front { animation: fullmoon 1.1s ease-out 0.35s both; }
+@keyframes fullmoon {
+  0% { box-shadow: var(--lift); }
+  35% { box-shadow: var(--lift), 0 0 0 5px var(--sun), 0 0 26px 8px var(--sun); }
+  100% { box-shadow: var(--lift), 0 0 0 2px var(--sun); }
+}
 
 /* card face */
 .face {
@@ -447,6 +490,21 @@ b { font-weight: 700; }
   justify-content: center;
   gap: 1.5rem;
 }
+.spread-wrap { display: grid; gap: 0.6rem; justify-items: center; }
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.3rem 1rem;
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+}
+.tally-now b { font-size: var(--t-lg); font-family: var(--font-title); font-weight: 400; margin-right: 0.15em; }
+.tally-goals { display: inline-flex; gap: 0.7rem; color: var(--chalk-dim); }
+.tally-mark { display: inline-flex; align-items: center; gap: 0.25rem; }
+.tally-mark.is-reached { color: var(--chalk); font-weight: 700; }
 .slot { display: grid; justify-items: center; gap: 0.35rem; }
 .slot-empty {
   display: block;
@@ -529,41 +587,72 @@ b { font-weight: 700; }
 .opt.is-wrong .opt-text { text-decoration: line-through; }
 .opt.is-answer { border-style: dashed; border-color: var(--accent-text); color: var(--chalk); }
 
-.chips { display: inline-flex; gap: 0.3rem; }
+.chips { display: inline-flex; align-items: center; gap: 0.25rem; }
 .chip {
-  display: grid;
-  place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  display: block;
+  width: 1.05rem;
+  height: 1.05rem;
   border-radius: 50%;
-  border: 1.5px dashed var(--on-sun);
   background: var(--sun);
-  color: var(--on-sun);
-  box-shadow: 0 0 0 2px var(--sun);
-  margin: 2px;
+  border: 2px dashed var(--on-sun);
+  box-shadow: 0 0 0 1.5px var(--sun);
+  margin: 1.5px;
 }
-.chip svg { width: 1.05rem; height: 1.05rem; }
-.chip.is-spent { background: transparent; color: var(--chalk-dim); border-color: var(--chalk-dim); box-shadow: none; }
+.chips.is-new .chip { animation: chip-in 0.4s cubic-bezier(0.2, 0.7, 0.2, 1.4) both; }
+.chips.is-new .chip:nth-child(2) { animation-delay: 90ms; }
+.chips.is-new .chip:nth-child(3) { animation-delay: 180ms; }
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
 
-.tell {
+/* the keep-or-pass decision */
+.notes { display: grid; gap: 0.3rem; font-family: var(--font-ui); font-size: var(--t-sm); }
+.notes li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.notes .hope { color: var(--chalk-dim); }
+.outcome { font-family: var(--font-ui); }
+.choice { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.choice .btn { display: inline-flex; align-items: center; gap: 0.5rem; }
+.pass-cost { font-weight: 500; color: var(--chalk-dim); }
+
+.hud {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.2rem 0.6rem;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1.25rem;
   width: 100%;
   max-width: 620px;
   margin-inline: auto;
   font-family: var(--font-ui);
   font-size: var(--t-sm);
 }
-.tell-k {
+.hud-part { display: flex; align-items: center; gap: 0.6rem; min-height: 2rem; }
+.hud-k {
   font-size: var(--t-xs);
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--accent-text);
 }
-.tell-note { color: var(--chalk-dim); }
+.hud-n { font-family: var(--font-title); font-weight: 400; font-size: var(--t-lg); font-variant-numeric: tabular-nums; min-width: 0.7em; }
+
+/* The moon board: what the hand holds. Turned moons are marked; face-down moons stay lit. */
+.board { display: inline-flex; align-items: center; gap: 0.3rem; }
+.bm { position: relative; display: inline-grid; place-items: center; width: 1.65rem; height: 1.65rem; border-radius: 50%; }
+.bm .moon { width: 1.35rem; height: 1.35rem; }
+.bm.is-passed { opacity: 0.45; }
+.bm.is-passed::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: var(--chalk);
+  transform: rotate(-35deg);
+}
+.bm.is-kept, .bm.is-up { box-shadow: 0 0 0 2px var(--sun); }
 .scale { font-family: var(--font-ui); font-size: var(--t-sm); color: var(--chalk-dim); font-variant-numeric: tabular-nums; }
 
 .hand {
@@ -587,6 +676,8 @@ b { font-weight: 700; }
   color: var(--chalk-dim);
 }
 .plus { color: var(--accent-text); }
+.cap-suit { font-weight: 500; }
+.cap-note { font-weight: 500; }
 .hand.is-dealing .pcard { animation: deal 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: calc(var(--i) * 70ms); }
 .hand.is-reveal .pc-flip { transition-delay: calc(var(--i) * 60ms); }
 .reading .trio-item { animation: settle 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: calc(var(--i) * 140ms); }
@@ -674,7 +765,8 @@ b { font-weight: 700; }
 .trio-name { font-family: var(--font-title); font-size: var(--t-lg); line-height: 1.15; }
 .trio-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font-family: var(--font-ui); font-size: var(--t-sm); color: var(--chalk-dim); }
 .trio-lead { font-style: italic; }
-.trio-tag { margin-top: 0.2rem; }
+.trio-tag { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.2rem; }
+.path { display: inline-flex; align-items: center; gap: 0.2rem; }
 
 .together, .fell, .after { display: grid; gap: 0.9rem; padding-top: 1.5rem; border-top: 1px dashed var(--rail); }
 .together > p, .fell > p { max-width: 40em; }
@@ -693,6 +785,23 @@ b { font-weight: 700; }
 .closing { font-size: var(--t-lg); line-height: 1.35; }
 
 .verdict { font-size: var(--t-lg); line-height: 1.35; }
+.lift {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--rail);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.lift-side { display: grid; gap: 0.15rem; }
+.lift-v { display: flex; align-items: center; gap: 0.45rem; font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
+.lift-v b { font-family: var(--font-title); font-weight: 400; font-size: var(--t-xl); line-height: 1; }
+.lift-v .moon { width: 1.5rem; height: 1.5rem; }
+.lift-note { font-size: var(--t-sm); color: var(--chalk-dim); }
+.lift-arrow { font-size: var(--t-xl); color: var(--accent-text); }
+.plain { display: grid; gap: 0.25rem; padding-left: 1.1rem; list-style: disc; }
 .meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .meter {
   display: grid;
@@ -728,7 +837,7 @@ b { font-weight: 700; }
 }
 .rounds .r-pos { font-family: var(--font-ui); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: var(--t-xs); padding-top: 0.2rem; }
 .rounds .r-body { display: grid; gap: 0.15rem; min-width: 0; }
-.rounds .r-card { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font-family: var(--font-ui); font-weight: 700; font-size: var(--t-md); }
+.rounds .r-card { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; font-family: var(--font-ui); font-weight: 700; font-size: var(--t-md); }
 .rounds .r-line { color: var(--chalk-dim); }
 
 .odds { display: grid; gap: 0.5rem; max-width: 40em; }
@@ -841,6 +950,15 @@ b { font-weight: 700; }
   .odds-label .odds-name { display: none; }
   .rounds li { grid-template-columns: minmax(0, 1fr); }
   .spread { gap: 1rem; grid-template-columns: repeat(3, minmax(0, 56px)); }
+  /* at the table, the spread shrinks to a row beside its count so the hand and the choices share one screen */
+  .play.is-table .spread-wrap { grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: start; gap: 0.9rem; }
+  .play.is-table .spread { grid-template-columns: repeat(3, 40px); gap: 0.5rem; }
+  .play.is-table .slot-label { font-size: 0.625rem; letter-spacing: 0.04em; }
+  .play.is-table .slot-label .moon { display: none; }
+  .play.is-table .tally { justify-content: flex-start; }
+  .play.is-table { gap: 0.8rem; }
+  .play.is-table .reader { min-height: 0; }
+  .hud-wide { display: none; }
   .reader { padding: 0.95rem 0.9rem 1rem; }
 }
 
@@ -848,5 +966,8 @@ b { font-weight: 700; }
   .pc-flip, .pcard.is-live, .pcard.is-dim { transition: none; }
   .hand.is-dealing .pcard { animation: none; }
   .reading .trio-item { animation: none; }
+  .chips.is-new .chip { animation: none; }
+  .pcard.is-full .pc-front { animation: none; box-shadow: var(--lift), 0 0 0 2px var(--sun); }
+  .pcard.is-burned { transition: none; }
   .hand.is-reveal .pc-flip { transition-delay: 0s; }
 }

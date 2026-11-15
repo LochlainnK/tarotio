@@ -11,6 +11,8 @@ const days = n => Array.from({ length: n }, (_, i) => {
   return d.toISOString().slice(0, 10);
 });
 const game = (date, sign, rounds) => ({ mode: 'daily', date, sign, seedKey: E.dailySeed(date, sign), rounds });
+// three hands where the first card turned is kept, with no chips won
+const blind = p => [0, 1, 2].map(r => ({ earned: 0, turned: [(p + r) % 5], pick: (p + r) % 5, forced: false }));
 
 test('the deck is a full 78-card tarot deck with complete text', () => {
   assert.equal(D.CARDS.length, 78);
@@ -104,16 +106,18 @@ test('daily questions are the same for every sign and do not repeat within a poo
   assert.equal(first.size, E.POOLS[1].length);
 });
 
-test('glimpses: two for a first-try answer, one for a second try, none after', () => {
-  assert.equal(E.glimpsesFor(1), 2);
-  assert.equal(E.glimpsesFor(2), 1);
-  assert.equal(E.glimpsesFor(3), 0);
+test('chips: two for a first-try answer, one for a second try, none after', () => {
+  assert.equal(E.chipsFor(1), 2);
+  assert.equal(E.chipsFor(2), 1);
+  assert.equal(E.chipsFor(3), 0);
+  assert.equal(E.CONFIG.MAX_INSIGHT, 6);
 });
 
-test('how a card was chosen separates sight, gamble and fate', () => {
-  assert.equal(E.howChosen({ seen: [1, 3], pick: 3 }), 'sight');
-  assert.equal(E.howChosen({ seen: [1, 3], pick: 0 }), 'gamble');
-  assert.equal(E.howChosen({ seen: [], pick: 2 }), 'fate');
+test('how a card was kept separates choice from fate', () => {
+  assert.equal(E.howKept({ turned: [2], forced: false }), 'first');
+  assert.equal(E.howKept({ turned: [2], forced: true }), 'fate');
+  assert.equal(E.howKept({ turned: [2, 0, 4], forced: false }), 'dug');
+  assert.equal(E.howKept({ turned: [2, 0, 4], forced: true }), 'last');
 });
 
 test('patterns add the documented bonuses', () => {
@@ -126,6 +130,9 @@ test('patterns add the documented bonuses', () => {
   assert.equal(bonus([up('w03'), up('c09'), up('s06')], 'leo'), 1);                 // one attuned card
   assert.equal(bonus([up('c03'), up('c09'), up('c06')], 'leo'), 2);                 // trine of Cups
   assert.equal(bonus([up('w03'), up('w09'), up('w06')], 'leo'), 2 + 3);             // trine + three attuned
+  assert.equal(bonus([up('s04'), up('c09'), up('p06')], 'libra'), 2);               // Swords give Air signs two steps
+  assert.equal(E.attunedBonus('swords'), 2);
+  assert.equal(E.attunedBonus('cups'), 1);
   assert.equal(bonus([up('c07'), up('s07'), up('p02')], 'leo'), 1);                 // a pair of sevens
   assert.equal(bonus([up('c07'), up('s07'), up('p07')], 'leo'), 3);                 // three sevens
   assert.equal(bonus([up('c05'), up('s06'), up('p07')], 'leo'), 2);                 // a run 5-6-7
@@ -133,18 +140,51 @@ test('patterns add the documented bonuses', () => {
   assert.equal(bonus([up('c02'), up('s09'), up('p05')], 'leo'), 0);
 });
 
-test('the tell counts bright cards without saying which', () => {
-  for (const date of days(20)) {
+test('the moon board shows what a hand holds without leaking where', () => {
+  for (const date of days(25)) {
     const hand = E.dealHands(E.dailySeed(date, 'virgo'))[0];
-    const bright = hand.filter(c => E.auspice(c) >= E.CONFIG.BRIGHT_FROM).length;
-    const open = E.handTell(hand, []);
-    assert.deepEqual(open, { size: 5, bright, unseen: 5, unseenBright: bright });
-    assert.ok(open.bright >= 1, 'a fair hand always holds a bright card');
-    const seen = [0, 3];
-    const t = E.handTell(hand, seen);
-    assert.equal(t.unseen, 3);
-    assert.equal(t.unseenBright, bright - seen.filter(i => E.isBright(hand[i])).length);
+    const moons = hand.map(E.auspice).sort((a, b) => b - a);
+    const open = E.handBoard(hand, [], null, null);
+    assert.deepEqual(open.map(e => e.a), moons);
+    assert.ok(open.every(e => e.state === 'down'));
+    // after turning cards 0 and 3 (0 passed, 3 awaiting a decision) the same moons are there, with states
+    const mid = E.handBoard(hand, [0, 3], null, 3);
+    assert.deepEqual(mid.map(e => e.a), moons);
+    assert.equal(mid.filter(e => e.state === 'passed').length, 1);
+    assert.equal(mid.filter(e => e.state === 'up').length, 1);
+    assert.equal(mid.filter(e => e.state === 'down').length, 3);
+    // the board must be identical whichever positions the face-down cards sit in
+    const swapped = hand.slice(); const tmp = swapped[1]; swapped[1] = swapped[4]; swapped[4] = tmp;
+    assert.deepEqual(E.handBoard(swapped, [0, 3], null, 3), mid);
+    const done = E.handBoard(hand, [0, 3], 3, null);
+    assert.equal(done.filter(e => e.state === 'kept').length, 1);
   }
+});
+
+test('auras show the suit and nothing else', () => {
+  assert.equal(E.aura({ id: 'c07', rev: true }), 'cups');
+  assert.equal(E.aura({ id: 'sun', rev: false }), 'major');
+  assert.equal(E.aura({ id: 'w01', rev: false }), E.aura({ id: 'w01', rev: true }));
+});
+
+test('keeping a card previews its worth to the spread', () => {
+  const up = id => ({ id, rev: false });
+  // first card for Leo: a Wands card carries its attunement
+  const a = E.keepPreview([], up('w06'), 'leo', 2);
+  assert.equal(a.total, 5 + 1);
+  assert.equal(a.gain, 6);
+  assert.deepEqual(a.notes.map(n => n.bonus), [1]);
+  // a second Cups card after a Cups card: no bonus yet, but a trine is in reach
+  const b = E.keepPreview([up('c02')], up('c09'), 'leo', 1);
+  assert.equal(b.gain, 5);
+  assert.ok(b.hopes.some(x => /Trine/.test(x)));
+  assert.equal(b.last, false);
+  // the third Cups card completes it
+  const c = E.keepPreview([up('c02'), up('c09')], up('c04'), 'leo', 0);
+  assert.equal(c.gain, 2 + 2);
+  assert.ok(c.notes.some(n => n.bonus === 2));
+  assert.equal(c.last, true);
+  assert.equal(c.tier, E.tierFor(c.total));
 });
 
 test('questions about a Minor card can be reasoned out from the suits', () => {
@@ -158,33 +198,58 @@ test('questions about a Minor card can be reasoned out from the suits', () => {
 
 test('the reading never says the same thing twice', () => {
   for (const date of days(30)) for (const sign of SIGN_IDS) for (let p = 0; p < 5; p++) {
-    const rounds = [0, 1, 2].map(r => ({ glimpses: 0, seen: [], pick: (p + r) % 5 }));
-    const sum = E.summarize(game(date, sign, rounds));
+    const sum = E.summarize(game(date, sign, blind(p)));
     const lines = [sum.blend, ...sum.score.patterns.map(x => x.text)].filter(Boolean);
     assert.equal(new Set(lines).size, lines.length, lines.join(' | '));
     for (const pat of sum.score.patterns) assert.ok(pat.bonus > 0 || pat.id === 'upright' || pat.id === 'reversed');
   }
 });
 
-test('odds are recorded for every card kept unseen, and only those', () => {
+test('the summary separates what the deck dealt from what the passes changed', () => {
+  // hand 1: pass twice, keep the third by choice. hand 2: keep the first. hand 3: pass once, then out of chips.
   const g = game('2026-11-14', 'leo', [
-    { glimpses: 2, seen: [1, 2], pick: 1 }, { glimpses: 1, seen: [1], pick: 4 }, { glimpses: 0, seen: [], pick: 4 }]);
-  const sum = E.summarize(g);
-  assert.equal(sum.positions[0].odds, null);
-  assert.equal(sum.positions[1].odds.of, 4);
-  assert.equal(sum.positions[2].odds.of, 5);
-  assert.equal(sum.unseenPicks, 2);
-  assert.ok(sum.unseenHits <= 2);
+    { earned: 2, turned: [1, 3, 0], pick: 0, forced: false },
+    { earned: 1, turned: [2], pick: 2, forced: false },
+    { earned: 0, turned: [4, 1], pick: 1, forced: true }]);
+  const hands = E.dealHands(g.seedKey);
+  const sum = E.summarize(g, hands);
+  assert.deepEqual(sum.how, ['dug', 'first', 'last']);
+  assert.equal(sum.insight, 3);
+  assert.equal(sum.chipsIn, 3 + 3);
+  assert.equal(sum.passes, 3);
+  assert.equal(sum.chipsLeft, 3);
+  assert.deepEqual(sum.positions.map(p => p.path.length), [3, 1, 2]);
+  assert.ok(sum.positions.every(p => p.path[p.path.length - 1].kept));
+  // first turns alone: cards 1, 2 and 4
+  assert.equal(sum.firstScore.total, E.scoreSpread([hands[0][1], hands[1][2], hands[2][4]], 'leo').total);
+  assert.equal(sum.lift, sum.score.total - sum.firstScore.total);
   assert.match(sum.arc, /^From .+, through .+, toward .+\.$/);
+  // no passes at all: the reading IS the first turns
+  const still = E.summarize(game('2026-11-14', 'leo', blind(2)));
+  assert.equal(still.lift, 0);
+  assert.equal(still.passes, 0);
+  assert.match(still.liftLine, /never passed/);
+});
+
+test('the share text shows the path of each hand and no card names', () => {
+  const g = game('2026-11-14', 'leo', [
+    { earned: 2, turned: [1, 3, 0], pick: 0, forced: false },
+    { earned: 1, turned: [2], pick: 2, forced: false },
+    { earned: 0, turned: [4, 1], pick: 1, forced: true }]);
+  const sum = E.summarize(g);
+  const lines = E.shareText(sum, 'https://example.com').split('\n');
+  const moons = l => Array.from(l).filter(ch => /[\u{1F311}-\u{1F315}]/u.test(ch)).length;
+  assert.deepEqual(lines.slice(2, 5).map(moons), [3, 1, 2]);
+  for (const p of sum.positions) assert.ok(!lines.join(' ').includes(p.name));
 });
 
 test('tiers follow the thresholds', () => {
   assert.equal(E.tierFor(3), 1);
-  assert.equal(E.tierFor(7), 1);
-  assert.equal(E.tierFor(8), 2);
-  assert.equal(E.tierFor(10), 3);
-  assert.equal(E.tierFor(13), 4);
-  assert.equal(E.tierFor(15), 5);
+  assert.equal(E.tierFor(8), 1);
+  assert.equal(E.tierFor(9), 2);
+  assert.equal(E.tierFor(11), 3);
+  assert.equal(E.tierFor(14), 4);
+  assert.equal(E.tierFor(16), 5);
   assert.equal(E.tierFor(22), 5);
 });
 
@@ -211,9 +276,14 @@ test('a finished game summarises into a complete, clean reading', () => {
   for (const date of days(12)) {
     for (const sign of SIGN_IDS) {
       for (let p = 0; p < 5; p++) {
-        const rounds = [0, 1, 2].map(r => ({ glimpses: (p + r) % 3, seen: (p + r) % 3 ? [p] : [], pick: (p + r) % 5 }));
+        // a mix of first-turn keeps and passes
+        const rounds = [0, 1, 2].map(r => {
+          const passes = (p + r) % 3, turned = [];
+          for (let k = 0; k <= passes; k++) turned.push((p + r + k) % 5);
+          return { earned: (p + r) % 3, turned, pick: turned[turned.length - 1], forced: (p + r) % 2 === 0 };
+        });
         const sum = E.summarize(game(date, sign, rounds));
-        const text = [sum.headline, sum.arc, sum.blend || '', sum.closing, sum.verdict, sum.luckLine, sum.quintessence.text,
+        const text = [sum.headline, sum.arc, sum.blend || '', sum.closing, sum.verdict, sum.liftLine, sum.openLine, sum.quintessence.text,
           ...sum.positions.map(x => x.lead + x.text), ...sum.score.patterns.map(x => x.title + x.text)].join(' ');
         assert.ok(!bad.test(text), text);
         assert.equal(sum.positions.length, 3);
@@ -232,9 +302,10 @@ test('reading text never puts the player down', () => {
   for (const c of D.CARDS) all.push(c.up.t, c.rev.t, c.up.k, c.rev.k);
   for (const t of E.TIERS.filter(Boolean)) all.push(...t.lines, ...t.close, t.title);
   for (const date of days(6)) for (const sign of SIGN_IDS) {
-    const rounds = [0, 1, 2].map(r => ({ glimpses: 0, seen: [], pick: r }));
-    const sum = E.summarize(game(date, sign, rounds));
-    all.push(sum.verdict, sum.closing, sum.blend || '', sum.luckLine, sum.arc);
+    for (const rounds of [blind(0), [0, 1, 2].map(r => ({ earned: 0, turned: [r, r + 1, r + 2], pick: r + 2, forced: true }))]) {
+      const sum = E.summarize(game(date, sign, rounds));
+      all.push(sum.verdict, sum.closing, sum.blend || '', sum.liftLine, sum.openLine, sum.arc);
+    }
   }
   // "The worst is behind you" is reassurance, so that phrase is allowed.
   for (const s of all) assert.ok(!banned.test(s.replace(/the worst (is )?behind you/i, '')), 'put-down wording: ' + s);

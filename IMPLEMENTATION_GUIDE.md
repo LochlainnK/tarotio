@@ -1,8 +1,8 @@
 # Tarotio implementation guide
 
 This file is written for an AI coding agent (or a developer) who will take the working
-prototype in this repository and ship it as a real, public daily game. Read all of it
-before changing anything. Follow the tasks in section 9 in order.
+game in this repository and ship it as a real, public daily game. Read all of it before
+changing anything. Follow the tasks in section 9 in order.
 
 If an instruction here conflicts with something you would normally do, follow this file.
 If something is not covered, ask the project owner instead of guessing.
@@ -19,24 +19,32 @@ and deals **three hands of five cards, face down**. The player keeps **one card 
 hand**. Those three cards are their **Past, Present and Future**, and the game reads them
 together as the player's fortune for the day.
 
-Before each hand the player answers a tarot or astrology question. A right answer earns
-**glimpses**: each glimpse turns one face-down card face up before the player chooses.
-So knowledge improves the odds, but most of every hand stays face down, and the deck was
-shuffled before the player sat down.
+The game in one hand:
 
-Every hand also shows a **tell**: how many of its five cards are bright, without saying
-which. The tell updates as cards are turned over, so the player always knows the odds of
-an unseen card before keeping it.
+1. **Win chips.** Every hand comes with one chip. A tarot or astrology question wins up
+   to two more.
+2. **Turn a card.** The player taps a face-down card and it turns over.
+3. **Keep or pass.** Keep it, or pay a chip to pass. A passed card is burned and cannot be
+   taken back. With no chips left, the card turned is the card kept.
+
+Two things are always public, and they are what make it a game of judgement:
+
+- **The moon board.** Above each hand is a row of five moons: exactly what the hand
+  holds, but never which card is which. Turned cards are crossed off. Before every pass
+  the player can see what is still face down.
+- **Suit marks.** The back of each card shows its suit (or a star for Major Arcana). The
+  player's own element is worth extra, and three of a suit is worth extra, so there is a
+  reason to turn one card rather than another and a hand to build across the three hands.
 
 The result screen always shows two separate things:
 
-- **Insight** (0 to 6): what the player earned. This is skill.
-- **Fortune** (New Moon to Full Moon): how bright the three kept cards are. This is mostly the deck.
+- **Insight** (0 to 6): chips won from the questions. This is knowledge.
+- **Fortune** (New Moon to Full Moon): how bright the three kept cards are.
 
-It also shows all 125 readings that day's deck could have dealt, and where the player's
-reading stands among them. A player who answered nothing and still drew a Full Moon can
-see plainly that it was luck. A player who answered everything and drew a New Moon can
-see plainly that it was the shuffle and not them.
+It also shows **what the first turns alone would have made** next to what the player
+ended with. That gap is exactly what their chips and their nerve did. A player who won no
+chips and still drew a Full Moon can see it was the deal. A player who dug through three
+passes for it can see it was theirs.
 
 **Current state:** everything above works today, fully in the browser, with no server and
 no build step. Open `index.html` and play. Your job is to launch it, not to redesign it.
@@ -47,36 +55,42 @@ no build step. Open `index.html` and play. Your job is to launch it, not to rede
 
 These are the product. Every change you make is checked against them.
 
-1. **Never put the player down.** There is no losing, no "wrong", no "bad luck", no
+1. **It has to be fun to play.** The fun is the keep-or-pass decision: a real gamble with
+   visible stakes. Every hand must give every player at least one such decision, which is
+   why every hand comes with a free chip. Do not gate the game behind the questions.
+2. **Never put the player down.** There is no losing, no "wrong", no "bad luck", no
    "unlucky", no "fail". A low result is a "deep" or "gentle" day that asks something of
    the player. Hard cards (The Tower, Ten of Swords) are written as honest and survivable.
-   `tests/engine.test.js` has a banned-word test. Keep it passing and extend it when you add text.
-2. **Keep skill and luck visibly separate.** Insight and Fortune are never merged into one
-   score. The result screen must always show: the Insight meter, the Fortune meter, how
-   each card was chosen (by sight, a gamble, or left to fate), and the chart of the 125
-   possible readings.
-3. **Luck must stay real in both directions.** A player with zero glimpses must sometimes
-   reach Full Moon. A perfect player must sometimes land low. Section 7 has the target numbers.
-4. **Stay rooted in real tarot.** Card meanings follow the Rider-Waite-Smith tradition.
+   A pass that did not pay off is "the price of nerve". `tests/engine.test.js` has a
+   banned-word test. Keep it passing and extend it when you add text.
+3. **Keep skill and luck visibly separate.** Insight and Fortune are never merged into one
+   score. The result must always show: the Insight meter, the Fortune meter, the path of
+   cards turned in each hand, "first turns alone" beside the final reading, and the chart
+   of the 125 blind readings.
+4. **Luck must stay real in both directions.** A player who wins no chips must sometimes
+   reach Full Moon. A perfect player must sometimes land lower. Section 7 has the targets.
+5. **No sign may be luckier than another.** Check this in the simulator after any change
+   to bonuses or card brightness (section 7 explains why Air signs need a larger bonus).
+6. **Stay rooted in real tarot.** Card meanings follow the Rider-Waite-Smith tradition.
    Sign-to-card links are the Golden Dawn attributions. Do not invent meanings, and do not
    add cards, suits or signs. Reversals, suit emphasis, repeated numbers and the
    quintessence card are all techniques real readers use; keep them accurate.
-5. **Same day and same sign means the same deck, for everyone, on every device.** All
+7. **Same day and same sign means the same deck, for everyone, on every device.** All
    randomness comes from the seeded generator in `js/engine.js`. Never call `Math.random()`
    for anything that affects a daily game.
-6. **One daily reading per day.** Progress is saved after every action so a refresh cannot
-   re-roll a question or a pick. Practice hands are separate and never touch stats or streaks.
-7. **Sharing is spoiler-free.** The share text uses emoji only and never names a card,
-   because everyone with the same sign has the same deck.
-8. **The game works with no network after load, no account, and no tracking by default.**
-9. **Always show the odds.** The tell stays on screen for the whole hand, and the result
-   records the odds of every card that was kept unseen ("left to fate at 2 in 5"). Luck the
-   player can count is luck the player can believe.
-10. **The cards must not move while the player is choosing.** During the glimpse, choose
-    and reveal phases the reader's panel sits below the hand, so changing text never
-    shifts a card under a finger. Keep it that way.
-11. **A damaged save must never lock a player out.** Saved state is validated on load
+8. **One daily reading per day.** Progress is saved after every action so a refresh cannot
+   undo a pass or re-roll a question. Practice hands are separate and never touch stats.
+9. **A face-down card shows its suit and nothing else.** Its face, name, number,
+   orientation and brightness must not be in the page in any form until it is turned.
+   The moon board gives the set of moons in the hand, never their positions.
+10. **The cards must not move while the player is choosing.** At the table the reader's
+    panel sits below the hand, so changing text never shifts a card under a finger. On a
+    phone the spread, the hand and the Keep and Pass buttons must fit on one screen.
+11. **Sharing is spoiler-free.** The share text uses moons only and never names a card,
+    because everyone with the same sign has the same deck.
+12. **A damaged save must never lock a player out.** Saved state is validated on load
     (`validGame` in `js/app.js`); anything out of range is dropped and the day starts clean.
+13. **The game works with no network after load, no account, and no tracking by default.**
 
 ---
 
@@ -84,14 +98,14 @@ These are the product. Every change you make is checked against them.
 
 | File | What it holds | Change it when |
 |---|---|---|
-| `index.html` | Page structure, the three views (intro, play, reading), dialogs, the SVG icon sprite | Adding meta tags, a favicon, new static copy |
+| `index.html` | Page structure, the three views (intro, play, reading), dialogs, the SVG icon sprite | Adding meta tags, new static copy |
 | `styles.css` | All styling. Colours are tokens on `:root`, with a night theme (default) and a day theme | Visual changes only |
 | `js/cards.js` | The 78 cards (keywords, fortune text, brightness for upright and reversed), the 4 suits, the 12 signs | Editing card or sign text |
 | `js/trivia.js` | Hand-written lore questions | Adding questions |
-| `js/engine.js` | Every rule: seeding, the deal, questions, scoring, patterns, odds, reading text, share text. No DOM | Changing rules or reading templates |
+| `js/engine.js` | Every rule: seeding, the deal, the moon board, questions, scoring, patterns, odds, reading text, share text. No DOM | Changing rules or reading templates |
 | `js/app.js` | The UI: renders views, records actions, saves to `localStorage` | Changing interaction or layout logic |
-| `tests/engine.test.js` | Rule and content tests | Whenever you change the three data or engine files |
-| `tools/simulate.js` | Balance simulation | Run after any change to numbers |
+| `tests/engine.test.js` | Rule and content tests | Whenever you change the data or engine files |
+| `tools/simulate.js` | Balance simulation, including the per-sign fairness check | Run after any change to numbers |
 | `tools/bundle.js` | Builds `dist/tarotio.html`, the whole game in one file | Run when a host needs a single file |
 
 Scripts load in this order and each depends on the one before: `cards.js`, `trivia.js`,
@@ -139,56 +153,71 @@ npm start
    brightness 1 or 2. If any hand is unfair, reshuffle with the next attempt number
    (still deterministic) and try again.
 
-### 4.3 One round (repeated three times)
+### 4.3 Chips
 
-The tell is visible in every phase. With no cards seen it reads "3 of these five cards
-are bright. Picked blind, the odds of a bright card are 3 in 5." Once cards are seen it
-adds "Still face down: 3 cards, 2 of them bright." A card is bright at brightness 4 or 5
-(`CONFIG.BRIGHT_FROM`). `handTell(hand, seen)` computes it. A fair hand always has at
-least one bright card, so the tell is never zero at the deal.
+| Source | Chips |
+|---|---|
+| Every hand, from the reader | 1 (`CHIPS_PER_HAND`) |
+| Question right first time | 2 (`CHIPS_FIRST_TRY`) |
+| Question right on the second try | 1 (`CHIPS_SECOND_TRY`) |
+| Question missed twice | 0 |
+
+A pass costs 1 chip (`PASS_PRICE`). Unspent chips carry to the next hand. Chips have no
+value at the end; they are only for passing. Chips are added when the question is settled.
+
+### 4.4 One hand (repeated three times)
 
 | Phase | What happens |
 |---|---|
-| `question` | Four-option question. Easy for the Past, medium for the Present, hard for the Future. |
-| `answered` | Right on the first try: **2 glimpses**. Wrong first, right second: **1 glimpse**. Wrong twice: **0 glimpses**. The explanation is shown either way. |
-| `glimpse` | Each glimpse turns one face-down card face up, showing its name, keywords and brightness. |
-| `choose` | The player picks any of the five cards, seen or unseen, then confirms with "Keep this card". |
+| `question` | Four-option question. Easy for the Past, medium for the Present, hard for the Future. Two tries. |
+| `answered` | The answer and a one-line explanation are shown either way. Chips are added. |
+| `turn` | The player taps any face-down card. If they hold a chip and another card is still face down, go to `decide`. Otherwise the card is kept at once (`forced: true`) and the hand goes to `reveal`. |
+| `decide` | The turned card is shown with its brightness, keywords, what it adds to the spread, and how many face-down cards are brighter or dimmer. **Keep** goes to `reveal`. **Pass** costs a chip, burns the card, and returns to `turn`. |
 | `reveal` | All five cards turn face up so the player sees what else was there. |
 
-How a card was chosen (`howChosen`) is recorded as one of:
+How a card came to be kept (`howKept`):
 
-- `sight`: the kept card had been glimpsed first.
-- `gamble`: the player had glimpsed other cards and kept an unseen one.
-- `fate`: the player had no glimpses.
+- `first`: kept on the first turn, with a chip in hand to pass. A choice.
+- `fate`: kept on the first turn because there was no chip to pass with.
+- `dug`: found after at least one pass, and kept by choice.
+- `last`: kept after at least one pass, when the chips or the cards ran out.
 
-For `gamble` and `fate`, the odds at the moment of choosing (bright cards still face down,
-out of cards still face down) are shown on the reveal and again in the result.
+Keyboard: 1 to 4 (or A to D) answer a question, 1 to 5 turn a card, K keeps, P passes,
+Enter activates the focused button. After each action focus moves to the next control.
 
-Keyboard: 1 to 4 (or A to D) answer a question, 1 to 5 turn or pick up a card, Enter
-confirms. After each action focus moves to the next control.
+### 4.5 What the player can see
 
-### 4.4 Brightness
+- **Moon board** (`handBoard`): the five brightness values in the hand, brightest first,
+  each marked face down, face up, passed or kept. Equal moons are ordered by state only,
+  never by position, so the board cannot reveal where a card sits. There is a test for this.
+- **Suit marks** (`aura`): each face-down card shows its suit, or a star for Major
+  Arcana. Cards in the player's element are ringed and labelled with their bonus.
+- **Running count**: moons kept so far, beside the totals needed for each tier.
+- **Keep preview** (`keepPreview`): what the turned card adds now (its moons plus any
+  bonus it completes) and what a later card could still complete ("Two Cups: a third
+  makes a Trine").
+
+### 4.6 Brightness
 
 Every card face has a brightness (`a`, "auspice") from 1 to 5, shown as a moon phase:
 
 | Value | Moon | Typical cards |
 |---|---|---|
-| 5 | Full Moon | The Sun, The Star, Ten of Cups, Ace of anything, upright |
+| 5 | Full Moon | The Sun, The Star, Ten of Cups, any Ace, upright |
 | 4 | Gibbous Moon | The Chariot upright, The Devil reversed, Ten of Swords reversed |
 | 3 | Half Moon | The Hermit upright, The Tower reversed |
 | 2 | Crescent Moon | Most reversed cards, Death, The Moon upright |
 | 1 | New Moon | The Tower, The Devil, Three, Nine and Ten of Swords, Five of Cups, Five of Pentacles, upright |
 
-The hardest cards get brighter when reversed. That is traditional, and it is what makes
-knowing the cards a real skill.
+The hardest cards get brighter when reversed. That is traditional.
 
-### 4.5 Scoring a reading (`scoreSpread`)
+### 4.7 Scoring a reading (`scoreSpread`)
 
 `total = brightness of the three kept cards + pattern bonuses`
 
 | Pattern | Card-table nickname | Bonus |
 |---|---|---|
-| A kept card is in the suit of your sign's element ("attuned") | | +1 per card |
+| A kept card is in the suit of your sign's element ("attuned") | | +1 per card (+2 per card for Air signs, see section 7) |
 | Your sign's own Major Arcana card is kept | the wild card | +2 |
 | All three cards share a suit ("Trine") | a flush | +2 |
 | All three are Major Arcana ("Fate's Hand") | three of a kind | +2 |
@@ -201,29 +230,33 @@ Queen 13, King 14.
 
 | Total | Tier | Name shown |
 |---|---|---|
-| 15 or more | 5 | Full Moon, Blessed |
-| 13 to 14 | 4 | Gibbous Moon, Favoured |
-| 10 to 12 | 3 | Half Moon, Steady |
-| 8 to 9 | 2 | Crescent Moon, Gentle |
-| 7 or less | 1 | New Moon, Deep |
+| 16 or more | 5 | Full Moon, Blessed |
+| 14 to 15 | 4 | Gibbous Moon, Favoured |
+| 11 to 13 | 3 | Half Moon, Steady |
+| 9 to 10 | 2 | Crescent Moon, Gentle |
+| 8 or less | 1 | New Moon, Deep |
 
-### 4.6 Insight
+### 4.8 Insight
 
-Insight is the number of glimpses earned across the three rounds, 0 to 6. Titles:
-Wanderer, Seeker, Apprentice, Reader, Keen Eye, Seer, Oracle. Every title is respectful.
+Insight is the number of chips won from the three questions, 0 to 6 (the reader's free
+chips do not count). Titles: Wanderer, Seeker, Apprentice, Reader, Keen Eye, Seer, Oracle.
+Every title is respectful.
 
-### 4.7 The odds (`deckOdds`, `standing`)
+### 4.9 Telling luck from skill (`summarize`, `deckOdds`, `standing`)
 
-One card from each of three hands of five gives 5 x 5 x 5 = 125 possible readings. The
-engine scores all 125 and reports how many fall in each tier, what share of them the
-player's reading beats, and the chance that a blind draw reaches the player's tier or
-higher. This is the honest measure of luck. Do not replace it with an estimate.
+- **First turns alone.** The engine scores the first card turned in each hand as if it
+  had been kept (`firstScore`). The difference from the real score (`lift`) is what the
+  passes did. Positive: the chips paid. Zero with no passes: the whole reading was the
+  deal. Negative: the chase cost a little, and the text says so kindly.
+- **The 125 blind readings.** One card from each of three hands gives 5 x 5 x 5 = 125
+  readings. The engine scores all of them and reports how many fall in each tier and what
+  share the player's reading beats. This is what picking blind would give.
+- **The path.** For each hand, every card turned is recorded in order, so the result can
+  show "passed a Crescent, passed a Half, kept a Full".
 
-The result also counts what happened to the cards kept unseen ("2 of your 3 unseen picks
-came up bright"). If a player earned glimpses and then gambled on unseen cards twice or
-more, the verdict treats the result as the deck's doing, whatever their insight.
+Do not replace any of these with an estimate.
 
-### 4.8 Questions (`questionsFor`)
+### 4.10 Questions (`questionsFor`)
 
 Three pools, one per difficulty tier. Lore questions come from `js/trivia.js`; the rest
 are generated from the card and sign data, so they teach the same meanings the readings use.
@@ -243,7 +276,7 @@ For day number `d`, each pool is shuffled by a seed for its cycle and the game w
 through it one question a day. A question cannot repeat until its whole pool has been
 used. Questions depend on the date only, so every sign gets the same three questions.
 
-### 4.9 The reading text (`summarize`)
+### 4.11 The reading text (`summarize`)
 
 Each reading is assembled from:
 
@@ -258,7 +291,7 @@ Each reading is assembled from:
   is 22 or less, and read the Major Arcana card with that number (22 is The Fool),
 - a closing line: one of 3 openers for the sign, then one of 3 closers for the tier,
 - a verdict on skill and luck (3 insight bands x 3 fortune bands x 2 variants),
-- a line on how the unseen picks fell.
+- the "first turns alone" line and a line on how the first turns fell.
 
 The same sentence must never appear twice in one reading. There is a test for it.
 
@@ -314,14 +347,22 @@ day. `gift` and `ease` are noun phrases that complete "Lean on {gift}" and "go e
 ```js
 { v: 1,
   sign: 'leo',
-  daily: { v: 1, mode: 'daily', date: '2026-11-14', sign: 'leo', seedKey: '2026-11-14|leo',
-           round: 2, phase: 'choose', done: false,
-           rounds: [{ tries: [1], solved: true, glimpses: 2, seen: [0, 3], pick: 3 }, ...] },
-  history: [{ date: '2026-11-14', sign: 'leo', insight: 3, tier: 3, total: 10, pct: 46, sight: 1 }] }
+  daily: { v: 2, mode: 'daily', date: '2026-11-14', sign: 'leo', seedKey: '2026-11-14|leo',
+           round: 1, phase: 'decide', done: false, chips: 2,
+           rounds: [
+             { tries: [1], solved: true, earned: 2, turned: [3, 0, 4], pick: 4, forced: false },
+             { tries: [0, 2], solved: true, earned: 1, turned: [1], pick: null, forced: false },
+             { tries: [], solved: null, earned: 0, turned: [], pick: null, forced: false } ] },
+  history: [{ date: '2026-11-14', sign: 'leo', insight: 3, tier: 3, total: 12, pct: 61, passes: 2, first: 9 }] }
 ```
 
-If you change this shape, bump `v`, change the key to `tarotio.v2`, and write a migration
-that keeps `sign` and `history`. Never wipe a player's streak.
+- `turned` is the cards turned in that hand, in order. Every turned card except `pick`
+  has been passed.
+- `chips` is the chips in hand right now.
+- `daily.v` is the game-state version (`GAME_VERSION` in `js/app.js`). A saved game with a
+  different version is dropped on load; `sign` and `history` are kept. If you change the
+  shape of `daily`, raise `GAME_VERSION`. If you change the shape of the whole store,
+  change the key and write a migration. Never wipe a player's streak.
 
 ---
 
@@ -335,6 +376,7 @@ that keeps `sign` and `history`. Never wipe a player's streak.
 - When the player misses a question, state the answer and teach it. Never comment on the miss.
 - When the result is low, credit the shuffle. When it is high on low insight, call it
   luck warmly ("Fortune like this is given, never earned, so enjoy it").
+- When a pass did not pay off, call it the price of nerve. Never call it a mistake.
 - Never promise outcomes about health, money, law or relationships. Fortunes are prompts
   for reflection.
 - Banned words in player-facing text: stupid, dumb, fail, failed, failure, loser, lost,
@@ -344,32 +386,43 @@ that keeps `sign` and `history`. Never wipe a player's streak.
 
 ## 7. Balance
 
-Run `npm run simulate` after changing any of: a card's `a`, `REVERSED_CHANCE`, glimpse
-counts, any `BONUS` value, a tier `min`, or the `handIsFair` rule.
+Run `npm run simulate` after changing any of: a card's `a`, `REVERSED_CHANCE`, any chip
+number, any `BONUS` value, `ATTUNED_BY_SUIT`, a tier `min`, or the `handIsFair` rule.
+
+The simulator models two kinds of skill: how often the player answers right (this wins
+chips), and how well they play the table (random taps, careful use of the moon board, or
+a "shark" who also reads the suit marks).
 
 Current output (400 days x 12 signs per player type):
 
 | Player | Avg insight | New | Crescent | Half | Gibbous | Full |
 |---|---|---|---|---|---|---|
-| No glimpses at all | 0.0 | 10.5% | 23.2% | 45.8% | 15.6% | 4.9% |
-| Pure guesser | 2.3 | 4.1% | 13.6% | 43.5% | 26.5% | 12.2% |
-| Learner (half right) | 3.8 | 1.7% | 7.6% | 37.3% | 33.7% | 19.6% |
-| Regular (three quarters right) | 5.0 | 0.4% | 3.8% | 29.2% | 39.3% | 27.4% |
-| Always two glimpses | 6.0 | 0.2% | 1.8% | 21.6% | 42.1% | 34.4% |
+| No answers right, random taps | 0.0 | 4.0% | 12.1% | 42.4% | 31.8% | 9.8% |
+| No answers right, careful | 0.0 | 2.3% | 8.7% | 43.7% | 34.3% | 11.1% |
+| Pure guesser, careful | 2.2 | 0.4% | 3.4% | 30.9% | 45.3% | 19.9% |
+| Learner, careful | 3.8 | 0.2% | 1.4% | 24.5% | 49.2% | 24.7% |
+| Regular, careful | 5.0 | 0.1% | 0.6% | 18.6% | 52.5% | 28.3% |
+| Regular, shark | 5.1 | 0.0% | 0.2% | 13.0% | 46.2% | 40.7% |
+| All answers right, careful | 6.0 | 0.0% | 0.2% | 15.9% | 52.4% | 31.5% |
+| All answers right, shark | 6.0 | 0.0% | 0.0% | 11.3% | 46.8% | 41.8% |
 
-The simulated players use the tell the way a careful player would: they keep the best
-card they have seen unless the face-down cards are worth more on average.
-
-No sign is luckier than another. Average totals per sign differ by less than 0.4 moons
-over 600 simulated days, which is noise. If you change sign data or bonuses, check this again.
+Picking one card blind from each hand (no passes at all) reaches Full Moon about 2% of
+the time and Gibbous about 10%. That is the baseline the "125 readings" chart shows.
 
 Targets to keep after any change:
 
-- "No glimpses" reaches Full Moon between 2% and 8% of the time.
-- "Always two glimpses" reaches Gibbous or Full between 65% and 85% of the time, and Full
-  no more than 45%.
-- Each step up in skill raises the Gibbous-plus-Full share.
-- Every player type lands on every tier at least occasionally.
+- "No answers right, random taps" reaches Full Moon between 5% and 12% of the time.
+- "All answers right, shark" reaches Full Moon between 30% and 45% of the time, and
+  lands on Half Moon or lower at least 8% of the time.
+- Each step up in answers, and the step from careful to shark, raises the Full Moon share.
+- **Sign fairness:** the "spread between the luckiest and unluckiest sign" line stays
+  under 0.5 moons.
+
+**Why Air signs get +2.** Swords is the darkest suit in the deck (average brightness 2.6
+against about 3.4 for the others). Because suit marks are visible, players turn cards in
+their own element on purpose. With a +1 bonus for every sign, Gemini, Libra and Aquarius
+reached Full Moon about half as often as the other signs. `ATTUNED_BY_SUIT.swords = 2`
+closes that gap to within noise. Do not "simplify" it back to 1.
 
 If a change breaks a target, undo it or adjust tier thresholds until the targets hold.
 Then update the table above.
@@ -379,21 +432,23 @@ Then update the table above.
 ## 8. What is already done (do not rebuild)
 
 - Sign picker, remembered between visits.
-- Three rounds with question, second try, glimpses, choose, confirm, full-hand reveal.
-- The tell on every hand, with live odds for face-down cards.
-- A layout where the hand never moves while the player is choosing.
-- Keyboard play (number keys and Enter) with focus following the action.
-- Mid-game save and resume, with validation so a damaged save starts the day clean.
-  A finished daily reopens on its reading.
-- Result screen: tier, three-card reading, patterns, quintessence, closing, verdict,
-  Insight and Fortune meters, per-card breakdown, chart of the 125 readings.
-- Share to clipboard with a text fallback, spoiler-free.
+- Three hands with question, second try, chips, turn, keep or pass, full-hand reveal.
+- The moon board, suit marks on card backs, running moon count, keep preview with
+  bonuses and "what a third card could complete".
+- A layout where the hand never moves while the player is choosing, and where the whole
+  table fits on a 360 x 640 phone screen.
+- Keyboard play with focus following the action.
+- Mid-game save and resume, with validation so a damaged or outdated save starts the day
+  clean. A finished daily reopens on its reading.
+- Result screen: tier, one-line arc, three-card reading with the path of each hand,
+  patterns, quintessence card, closing, verdict, "first turns alone" beside the final
+  reading, Insight and Fortune meters, per-hand breakdown, chart of the 125 blind readings.
+- Share to clipboard with a text fallback, spoiler-free, one row of moons per hand.
 - Stats: readings, current streak, best streak, average insight, the last 14 readings as
   moons, fortune history, "lucky breaks" and "earned" counts.
-- An inline favicon (a red card back).
 - Countdown to the next deck and a prompt when a new day starts.
 - Practice hands that do not affect stats.
-- Day and night themes, phone layout, keyboard focus states, reduced-motion support.
+- Day and night themes, reduced-motion support, an inline favicon.
 - QA shortcut: add `?date=YYYY-MM-DD` to the address to play another day's deck.
 
 ---
@@ -459,11 +514,12 @@ licence. Only do this task if the owner wants illustrated cards.
    (`sun`, `w01` to `w14`, `c01`, `s01`, `p01` and so on). Target 400 px wide, under 40 KB each.
 3. In `faceHTML` in `js/app.js`, render an `<img>` with `loading="lazy"` and the card
    name as `alt`, and keep the current drawn face as the fallback if the image fails.
-4. A face-down card must never request its image. Only set `src` when the card is revealed,
-   exactly as the current code only inserts the face markup on reveal.
+4. A face-down card must never request its image. Only set `src` when the card is turned,
+   exactly as the current code only inserts the face markup when a card is turned.
+5. Keep the suit marks on the card backs. They are part of the game, not decoration.
 
 Done when: every one of the 78 ids has an image, reversed cards show rotated 180 degrees,
-and the network tab shows no card image loading before its reveal.
+and the network tab shows no card image loading before its card is turned.
 
 ### Task 6. Analytics (optional, ask the owner first)
 
@@ -473,11 +529,12 @@ Use a cookieless, privacy-first tool. Send only these events, with no personal d
 |---|---|
 | `game_start` | `mode`, `sign` |
 | `question_answered` | `round`, `tries`, `solved` |
-| `game_finish` | `mode`, `insight`, `tier`, `sight_count` |
+| `card_turned` | `round`, `turn_number`, `decision` (`keep`, `pass` or `forced`) |
+| `game_finish` | `mode`, `insight`, `tier`, `passes`, `lift` |
 | `share` | `mode`, `tier` |
 
-Put the calls in `js/app.js` next to `newGame`, `answer`, `finishGame` and `share`. Wrap
-each in `try/catch` so a blocked script can never break play.
+Put the calls in `js/app.js` next to `newGame`, `answer`, `turn`, `keep`, `pass`,
+`finishGame` and `share`. Wrap each in `try/catch` so a blocked script can never break play.
 
 Done when: events arrive for a test game, and the game still works with the analytics
 host blocked.
@@ -496,39 +553,43 @@ Done when: the site installs to a phone home screen and a game can be played in 
 ### Task 8. Server-dealt decks (optional hardening)
 
 Today the deck is computed in the browser, so a determined player could read the code and
-work out tomorrow's cards. For a casual game that is acceptable. If the owner wants to
-prevent it:
+work out where the bright cards are. For a casual game that is acceptable. If the owner
+wants to prevent it:
 
 1. Add one endpoint, `GET /api/daily?date=YYYY-MM-DD&sign=leo`, that returns the three
-   hands and three questions as JSON. Compute them with the same `js/engine.js`, but use
-   the seed key `"<date>|<sign>|<SECRET>"` where `SECRET` is an environment variable that
-   is never sent to the browser.
-2. Refuse dates later than today (allow 14 hours of slack for time zones).
-3. In `js/app.js`, make `hydrate()` fetch from the endpoint for daily games and fall back
-   to the local deal if the request fails. Practice hands stay local.
-4. Do not send unrevealed card faces to the page if you go further than this; that needs
-   per-action endpoints and accounts and is out of scope unless the owner asks.
+   questions and, for each hand, only the public information: the five suit marks in
+   position order and the sorted list of five moons. Compute them with the same
+   `js/engine.js`, using the seed key `"<date>|<sign>|<SECRET>"` where `SECRET` is an
+   environment variable that is never sent to the browser.
+2. Add `POST /api/turn` that takes the date, sign, hand and position and returns that
+   card. The server must record turns per player so a passed card cannot be turned again
+   and a kept card ends the hand. This needs a session or account; ask the owner which.
+3. Refuse dates later than today (allow 14 hours of slack for time zones).
+4. Practice hands stay local.
 
-Done when: two devices get the same deck from the endpoint, a request for tomorrow is
-refused, and the game still plays with the endpoint unreachable.
+Done when: the page never receives a card it has not turned, two devices get the same
+deck, and a request for tomorrow is refused.
 
 ### Task 9. Final checks before announcing
 
 Run through this list on a phone and a desktop, in day and night themes:
 
-- [ ] `npm test` passes and `npm run simulate` meets the targets in section 7.
-- [ ] A full daily game works with keyboard only (Tab, Enter, Space).
-- [ ] Refreshing in every phase resumes in the same phase with the same cards and question.
+- [ ] `npm test` passes and `npm run simulate` meets every target in section 7, including sign fairness.
+- [ ] A full daily game works with keyboard only.
+- [ ] Refreshing in every phase resumes in the same phase with the same cards, chips and question.
+- [ ] A passed card stays passed after a refresh.
 - [ ] After finishing, the page shows the reading and offers no second daily game.
 - [ ] Changing the device date forward one day offers a new deck and keeps the streak.
 - [ ] The share text contains no card names.
-- [ ] No horizontal scrolling at 360 px wide.
+- [ ] No horizontal scrolling at 360 px wide, in every phase.
+- [ ] On a 360 x 640 phone, the hand and the Keep and Pass buttons are on screen together.
+- [ ] The five cards stay in the same place through turn, decide and pass.
+- [ ] The moon board matches the cards in every phase.
+- [ ] In dev tools, a face-down card's markup contains no face, name or brightness.
 - [ ] With "reduce motion" on, cards change without flipping or flying.
 - [ ] With `localStorage` blocked (private window), a game can still be played to the end.
-- [ ] The words in section 6's banned list appear nowhere in the interface.
-- [ ] On a phone, the five cards stay in the same place while turning and choosing them.
-- [ ] The tell is visible in every phase and its counts match the cards.
 - [ ] With the saved state edited to nonsense in dev tools, the page still loads to a clean start.
+- [ ] The words in section 6's banned list appear nowhere in the interface.
 
 ---
 
@@ -541,8 +602,9 @@ answerable by a curious beginner. Appending rows changes which question falls on
 future day; that is fine, but never edit or reorder rows on the same day people are playing.
 
 **More reading variety.** Add strings to `TIERS[n].lines`, `TIERS[n].close`,
-`POSITIONS[n].leads` or `VERDICTS` in `js/engine.js`. Lead templates must contain `{k}`.
-Closing templates may use `{gift}`, `{Gift}` and `{ease}`.
+`POSITIONS[n].leads` or `VERDICTS` in `js/engine.js`, or to a sign's `opens` in
+`js/cards.js`. Lead templates must contain `{k}`. Closing templates may use `{gift}`,
+`{Gift}` and `{ease}`.
 
 **Another language.** Copy `js/cards.js` and `js/trivia.js` into per-language files with
 the same ids and numbers, and move the strings in `js/engine.js` and `js/app.js` into a
@@ -554,17 +616,23 @@ value, id or number per language: the deck must be the same in every language.
 ## 11. Mistakes to avoid
 
 - Do not merge Insight and Fortune into one number or one leaderboard.
-- Do not add a timer to questions. Time pressure is not part of this game.
+- Do not remove the free chip per hand. Without it a player who misses the question has
+  no decision to make, and the game stops being a game for them.
+- Do not let passed cards be taken back. The gamble is the point.
+- Do not give leftover chips a score value without re-running the simulation and asking
+  the owner: it would mix skill into Fortune.
+- Do not add a timer to questions or decisions. Time pressure is not part of this game.
 - Do not let a player replay the daily to get a better fortune. Practice hands exist for that.
-- Do not show the brightness of a face-down card anywhere, including in hidden markup,
-  `title` attributes or `aria-label`s. The tell gives a count for the hand and nothing
-  about any single card; keep it that way.
-- Do not animate cards in from the right edge. On a narrow phone that makes the page
-  scroll sideways for a moment. Cards fly in from the upper left.
+- Do not put a face-down card's face, name, orientation or brightness in the page, in
+  hidden markup, `title` attributes or `aria-label`s. Suit only.
+- Do not sort the moon board in any way that depends on card position.
 - Do not use `Math.random()` in `js/engine.js`.
 - Do not rename card ids or change card numbers. Saved games and seeds depend on them.
 - Do not change the order of the `CARDS` array. The shuffle reads it in order, so
   reordering changes every future deck.
-- Do not add frameworks or a build step unless the owner asks. The game is about 150 KB
+- Do not animate cards in from the right edge. On a narrow phone that makes the page
+  scroll sideways for a moment. Cards fly in from the upper left.
+- Do not put the reader's panel above the hand while cards are being turned.
+- Do not add frameworks or a build step unless the owner asks. The game is about 180 KB
   of plain files and loads instantly.
 - Do not describe a result as the player's fault, and do not describe a card as bad.
