@@ -2,18 +2,18 @@
  * Tarotio engine: every rule of the game, with no DOM and no storage.
  *
  * Everything here is deterministic. Given the same seed key, the same deal,
- * questions and reading text come out, on any device. The UI (app.js) only
+ * omens and reading text come out, on any device. The UI (app.js) only
  * records what the player did and asks this file what it means.
  *
  * Works as a browser global (window.TarotioEngine) and as a Node module.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./cards.js'), require('./trivia.js'));
+    module.exports = factory(require('./cards.js'));
   } else {
-    root.TarotioEngine = factory(root.TarotioCards, root.TarotioTrivia);
+    root.TarotioEngine = factory(root.TarotioCards);
   }
-})(typeof self !== 'undefined' ? self : this, function (Data, Trivia) {
+})(typeof self !== 'undefined' ? self : this, function (Data) {
   'use strict';
 
   var CARDS = Data.CARDS, CARD_BY_ID = Data.CARD_BY_ID;
@@ -29,18 +29,17 @@
     ROUNDS: 3,
     HAND_SIZE: 5,
     REVERSED_CHANCE: 0.3,       // chance each dealt card lands reversed
-    CHIPS_PER_HAND: 1,          // every hand starts with one chip from the Reader, so everyone gets a keep-or-pass decision
-    CHIPS_FIRST_TRY: 2,         // answer right first time
-    CHIPS_SECOND_TRY: 1,        // answer right on the second try
+    CHIPS_PER_HAND: 1,          // every hand comes with one chip, so everyone gets a keep-or-pass decision
     PASS_PRICE: 1,              // chips paid to pass on a turned card
-    MAX_TRIES: 2,
+    INSIGHT_FIRST_TURN: 2,      // the first card turned in a hand is its brightest: the omens were read true
+    INSIGHT_FOUND_LATER: 1,     // the brightest card was found after passing
     BRIGHT_FROM: 4,             // a card is "bright" at Gibbous Moon or better
     BONUS: { attuned: 1, signCard: 2, trine: 2, majors: 2, pair: 1, triple: 3, run: 2 },
     // What a card in the player's own element adds. Swords is the hardest suit in the deck,
     // so it gives its own (Air) signs two steps; without this, Air signs come out measurably less lucky.
     ATTUNED_BY_SUIT: { wands: 1, cups: 1, swords: 2, pentacles: 1 }
   };
-  CONFIG.MAX_INSIGHT = CONFIG.ROUNDS * CONFIG.CHIPS_FIRST_TRY;
+  CONFIG.MAX_INSIGHT = CONFIG.ROUNDS * CONFIG.INSIGHT_FIRST_TURN;
 
   // Reading tiers. `min` is the lowest total brightness that reaches the tier.
   var TIERS = [
@@ -283,11 +282,16 @@
 
   /* -------------------------------- deal ------------------------------ */
 
-  // A hand is fair when it holds something bright to find and something deep to avoid,
-  // so every choice matters.
+  // A hand is fair when it holds something bright to find, something deep to avoid, and
+  // exactly ONE brightest card. The omens are about "the brightest card", so it must be unique.
   function handIsFair(hand) {
     var a = hand.map(auspice);
-    return Math.max.apply(null, a) >= 4 && Math.min.apply(null, a) <= 2;
+    var max = Math.max.apply(null, a), min = Math.min.apply(null, a);
+    return max >= CONFIG.BRIGHT_FROM && min <= 2 && a.filter(function (x) { return x === max; }).length === 1;
+  }
+  function topIndex(hand) {
+    var a = hand.map(auspice);
+    return a.indexOf(Math.max.apply(null, a));
   }
 
   // Shuffle the 78-card deck from the seed and deal three hands of five.
@@ -295,14 +299,14 @@
   function dealHands(seedKey) {
     var ids = CARDS.map(function (c) { return c.id; });
     var hands = null;
-    for (var attempt = 0; attempt < 60; attempt++) {
+    for (var attempt = 0; attempt < 400; attempt++) {
       var rng = rngFrom('deal|' + seedKey + '|' + attempt);
       var drawn = shuffle(ids, rng).slice(0, CONFIG.ROUNDS * CONFIG.HAND_SIZE).map(function (id) {
         return { id: id, rev: rng() < CONFIG.REVERSED_CHANCE };
       });
       hands = [];
       for (var r = 0; r < CONFIG.ROUNDS; r++) hands.push(drawn.slice(r * CONFIG.HAND_SIZE, (r + 1) * CONFIG.HAND_SIZE));
-      if (hands.every(handIsFair)) break;
+      if (hands.every(handIsFair) && hands.every(hasPuzzle)) break;
     }
     return hands;
   }
@@ -443,150 +447,235 @@
     };
   }
 
-  /* ------------------------------ questions --------------------------- */
+  /* -------------------------------- omens ----------------------------- */
 
-  var STOP = { that: 1, with: 1, than: 1, from: 1, your: 1, still: 1, more: 1, much: 1, left: 1, held: 1, into: 1, what: 1, look: 1 };
-  function kwWords(k) {
-    return k.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(function (w) { return w.length > 3 && !STOP[w]; });
-  }
-  function overlaps(k1, k2) {
-    var a = kwWords(k1), b = kwWords(k2);
-    for (var i = 0; i < a.length; i++) if (b.indexOf(a[i]) !== -1) return true;
-    return false;
-  }
+  // The puzzle. Each hand comes with a few omens: true statements that, taken together,
+  // leave exactly one place the brightest card can be. The player can see the position of
+  // each card, the suit mark on its back, and the hand's five moons (the board), and has
+  // to work out the rest.
+  //
+  // Omens are built by generate-and-test:
+  //   1. list every arrangement of the hand's moons over the five positions,
+  //   2. list every true statement from a fixed vocabulary,
+  //   3. pick the smallest set of statements that rules out every arrangement whose
+  //      brightest card is somewhere else, with no statement to spare.
+  // So an omen set is always true, always sufficient and never redundant. There are tests for all three.
 
-  // Question specs, grouped by difficulty tier (1 easy, 2 medium, 3 hard).
-  // Lore comes from trivia.js; the rest are generated from the card and sign data,
-  // so the questions teach the same meanings the readings use.
-  var POOLS = (function () {
-    var pools = { 1: [], 2: [], 3: [] };
-    Trivia.LORE.forEach(function (row, i) { pools[row.t].push({ kind: 'lore', i: i }); });
-    SIGNS.forEach(function (s) {
-      pools[1].push({ kind: 'signElement', sign: s.id });
-      pools[2].push({ kind: 'signCard', sign: s.id });
-    });
-    CARDS.forEach(function (c) {
-      if (c.arcana === 'major') {
-        pools[1].push({ kind: 'whichCard', card: c.id });
-        pools[2].push({ kind: 'upright', card: c.id });
-        pools[3].push({ kind: 'number', card: c.id });
-      } else {
-        pools[2].push({ kind: 'whichCard', card: c.id });
-        pools[3].push({ kind: 'upright', card: c.id });
+  var MOON_NAME = [null, 'New Moon', 'Crescent Moon', 'Half Moon', 'Gibbous Moon', 'Full Moon'];
+  var PLACE_NAME = ['the card at the left end', 'the second card', 'the middle card', 'the fourth card', 'the card at the right end'];
+  function markName(k) { return k === 'major' ? 'Major Arcana' : SUITS[k].name; }
+  function maxAt(a) { return a.indexOf(Math.max.apply(null, a)); }
+
+  // Every distinct way the moons could be laid out.
+  function arrangements(moons) {
+    var seen = {}, out = [], a = moons.slice();
+    (function walk(k) {
+      if (k === a.length) {
+        var key = a.join('');
+        if (!seen[key]) { seen[key] = true; out.push(a.slice()); }
+        return;
       }
-      pools[3].push({ kind: 'reversed', card: c.id });
-    });
-    return pools;
-  })();
+      for (var i = k; i < a.length; i++) {
+        var t = a[k]; a[k] = a[i]; a[i] = t;
+        walk(k + 1);
+        t = a[k]; a[k] = a[i]; a[i] = t;
+      }
+    })(0);
+    return out;
+  }
 
-  // Wrong options. For a Minor Arcana card they come from the other suits, so a player
-  // who knows what the four suits stand for can reason the answer out without memorising cards.
-  function distractorCards(target, rng) {
-    if (target.arcana === 'minor') {
-      return SUIT_ORDER.filter(function (su) { return su !== target.suit; }).map(function (su) {
-        return pick(CARDS.filter(function (c) {
-          return c.suit === su && c.n !== target.n && !overlaps(c.up.k, target.up.k);
-        }), rng);
+  // Every true statement about this hand, from the omen vocabulary.
+  //   kind 'direct'   = about the brightest card itself: what it is, where it sits, what it sits beside
+  //   kind 'indirect' = about other cards; these need to be chained to rule a place out
+  // Each omen has: text, focus (card positions it speaks of), moons (board moons it names), test(arrangement).
+  function omenPool(marks, moons) {
+    var n = moons.length, top = maxAt(moons), out = [];
+    var all = [], count = {};
+    for (var i = 0; i < n; i++) { all.push(i); count[marks[i]] = (count[marks[i]] || 0) + 1; }
+    var kinds = Object.keys(count);
+    function where(k) { return all.filter(function (p) { return marks[p] === k; }); }
+    function beside(p) { return [p - 1, p + 1].filter(function (q) { return q >= 0 && q < n; }); }
+    function direct(text, allowed, focus) {
+      if (allowed.indexOf(top) === -1) return;
+      out.push({ kind: 'direct', text: text, focus: focus, moons: [], test: function (a) { return allowed.indexOf(maxAt(a)) !== -1; } });
+    }
+    function indirect(text, focus, named, test) {
+      if (test(moons)) out.push({ kind: 'indirect', text: text, focus: focus, moons: named, test: test });
+    }
+
+    // what the brightest card is
+    kinds.forEach(function (k) {
+      if (count[k] >= 2) direct('The brightest card is a ' + markName(k) + ' card.', where(k), where(k));
+      direct('The brightest card is not a ' + markName(k) + ' card.', all.filter(function (p) { return marks[p] !== k; }), where(k));
+    });
+    var alone = all.filter(function (p) { return count[marks[p]] === 1; });
+    var paired = all.filter(function (p) { return count[marks[p]] > 1; });
+    if (alone.length && paired.length) {
+      direct('The brightest card is the only one of its suit in this hand.', alone, alone);
+      direct('The brightest card shares its suit with another card here.', paired, paired);
+    }
+    // where it sits
+    direct('The brightest card sits at one end of the row.', [0, n - 1], [0, n - 1]);
+    direct('The brightest card is not at either end.', all.slice(1, n - 1), [0, n - 1]);
+    direct('The brightest card lies left of the middle.', [0, 1], [0, 1]);
+    direct('The brightest card lies right of the middle.', [3, 4], [3, 4]);
+    direct('The brightest card is not the middle card.', [0, 1, 3, 4], [2]);
+    // what it sits beside
+    kinds.forEach(function (k) {
+      var near = all.filter(function (p) { return beside(p).some(function (q) { return marks[q] === k; }); });
+      direct('The brightest card sits beside a ' + markName(k) + ' card.', near, where(k));
+      direct('The brightest card does not sit beside a ' + markName(k) + ' card.', all.filter(function (p) { return near.indexOf(p) === -1; }), where(k));
+    });
+    direct('The brightest card sits between two cards of the same suit.',
+      all.slice(1, n - 1).filter(function (p) { return marks[p - 1] === marks[p + 1]; }), all);
+    kinds.forEach(function (k) {
+      if (count[k] !== 1) return;
+      var q = where(k)[0];
+      direct('The brightest card lies somewhere left of the ' + markName(k) + ' card.', all.filter(function (p) { return p < q; }), [q]);
+      direct('The brightest card lies somewhere right of the ' + markName(k) + ' card.', all.filter(function (p) { return p > q; }), [q]);
+    });
+
+    // statements about the other cards
+    function ref(p) {
+      var k = marks[p];
+      if (count[k] === 1) return 'the ' + markName(k) + ' card';
+      if (count[k] === 2) return 'the ' + (where(k)[0] === p ? 'left-hand' : 'right-hand') + ' ' + markName(k) + ' card';
+      return PLACE_NAME[p];
+    }
+    all.forEach(function (p) {
+      if (p === top) return;
+      all.forEach(function (q) {
+        if (p !== q && moons[p] > moons[q]) {
+          indirect(cap(ref(p)) + ' outshines ' + ref(q) + '.', [p, q], [], function (a) { return a[p] > a[q]; });
+        }
       });
-    }
-    var pool = CARDS.filter(function (c) {
-      return c.id !== target.id && c.arcana === 'major' && !overlaps(c.up.k, target.up.k);
-    });
-    return shuffle(pool, rng).slice(0, 3);
-  }
-  // `own` is the same card's other orientation: the deliberate near miss.
-  function distractorKeywords(target, correct, own, rng) {
-    var out = [own], usedSuit = {};
-    var pool = shuffle(CARDS.filter(function (c) {
-      if (c.id === target.id) return false;
-      return target.arcana === 'minor' ? (c.suit && c.suit !== target.suit) : c.arcana === 'major';
-    }), rng);
-    for (var i = 0; i < pool.length && out.length < 3; i++) {
-      var c = pool[i];
-      if (c.suit && usedSuit[c.suit]) continue;
-      var k = rng() < 0.5 ? c.up.k : c.rev.k;
-      var clash = overlaps(k, correct) || out.some(function (o) { return o === k || overlaps(o, k); });
-      if (clash) continue;
-      out.push(k);
-      if (c.suit) usedSuit[c.suit] = true;
-    }
-    return out;
-  }
-  function finish(q, correct, wrong, why, rng) {
-    var options = shuffle([correct].concat(wrong), rng);
-    return { q: q, options: options, answer: options.indexOf(correct), why: why };
-  }
-
-  // Turn a spec into a real question: { q, options[4], answer (index), why }.
-  function materialize(spec, rng) {
-    var card, sign, row;
-    switch (spec.kind) {
-      case 'lore':
-        row = Trivia.LORE[spec.i];
-        return finish(row.q, row.a[0], row.a.slice(1), row.x, rng);
-      case 'signElement':
-        sign = SIGN_BY_ID[spec.sign];
-        return finish(sign.name + ' belongs to which element?', sign.element,
-          ['Fire', 'Earth', 'Air', 'Water'].filter(function (e) { return e !== sign.element; }),
-          sign.name + ' is a ' + sign.modality.toLowerCase() + ' ' + sign.element.toLowerCase() + ' sign, so its suit is ' + SUITS[sign.suit].name + '.', rng);
-      case 'signCard':
-        sign = SIGN_BY_ID[spec.sign];
-        card = CARD_BY_ID[sign.card];
-        return finish('Which Major Arcana card belongs to ' + sign.name + '?', card.name,
-          shuffle(SIGNS.filter(function (s) { return s.id !== sign.id; }), rng).slice(0, 3).map(function (s) { return CARD_BY_ID[s.card].name; }),
-          card.name + ' is the card of ' + sign.name + '. It speaks of ' + kwPhrase(card.up.k) + '.', rng);
-      case 'whichCard':
-        card = CARD_BY_ID[spec.card];
-        return finish('Which card, upright, speaks of ' + kwPhrase(card.up.k) + '?', card.name,
-          distractorCards(card, rng).map(function (c) { return c.name; }),
-          cap(inSentence(card)) + ', upright: ' + card.up.k + '.', rng);
-      case 'upright':
-        card = CARD_BY_ID[spec.card];
-        return finish('Upright, ' + inSentence(card) + ' most often speaks of…', cap(card.up.k),
-          distractorKeywords(card, card.up.k, card.rev.k, rng).map(cap),
-          cap(inSentence(card)) + ' upright: ' + card.up.k + '. Reversed, it turns to ' + card.rev.k + '.', rng);
-      case 'reversed':
-        card = CARD_BY_ID[spec.card];
-        return finish('Reversed, ' + inSentence(card) + ' most often speaks of…', cap(card.rev.k),
-          distractorKeywords(card, card.rev.k, card.up.k, rng).map(cap),
-          cap(inSentence(card)) + ' reversed: ' + card.rev.k + '. Upright, it reads ' + card.up.k + '.', rng);
-      case 'number':
-        card = CARD_BY_ID[spec.card];
-        var near = [];
-        for (var d = -3; d <= 3; d++) if (d !== 0 && card.n + d >= 0 && card.n + d <= 21) near.push(String(card.n + d));
-        return finish('What number does ' + inSentence(card) + ' carry in the Major Arcana?', String(card.n),
-          shuffle(near, rng).slice(0, 3),
-          cap(inSentence(card)) + ' is card ' + card.n + (card.n ? ' (' + roman(card.n) + ')' : '') + '.', rng);
-    }
-    throw new Error('Unknown question kind: ' + spec.kind);
-  }
-
-  // The three questions for a game, one per tier: easy for the Past, hard for the Future.
-  // Daily games walk through each pool in a shuffled order, so a question cannot repeat
-  // until its whole pool has been asked. Everyone gets the same questions on the same day.
-  function questionsFor(game) {
-    var out = [];
-    for (var tier = 1; tier <= CONFIG.ROUNDS; tier++) {
-      var pool = POOLS[tier], spec;
-      if (game.mode === 'daily') {
-        var d = dayNumber(game.date) - 1;
-        var cycle = Math.floor(d / pool.length);
-        var pos = ((d % pool.length) + pool.length) % pool.length;
-        spec = shuffle(pool, rngFrom('pool|' + tier + '|' + cycle))[pos];
-        out.push(materialize(spec, rngFrom('q|' + game.date + '|' + tier)));
-      } else {
-        var rng = rngFrom('pq|' + game.seedKey + '|' + tier);
-        spec = pick(pool, rng);
-        out.push(materialize(spec, rng));
+      if (p > 0 && p < n - 1) {
+        indirect(cap(ref(p)) + ' is dimmer than both its neighbours.', [p - 1, p, p + 1], [], function (a) { return a[p] < a[p - 1] && a[p] < a[p + 1]; });
       }
-    }
+    });
+    // named moons that appear exactly once on the board
+    [1, 2, 3, 4, 5].forEach(function (v) {
+      if (v === moons[top] || moons.filter(function (x) { return x === v; }).length !== 1) return;
+      var q = moons.indexOf(v), k = marks[q], name = 'The ' + MOON_NAME[v];
+      function at(a) { return a.indexOf(v); }
+      if (count[k] >= 2) indirect(name + ' is a ' + markName(k) + ' card.', where(k), [v], function (a) { return marks[at(a)] === k; });
+      else indirect(name + ' is the ' + markName(k) + ' card.', [q], [v], function (a) { return at(a) === q; });
+      indirect(name + ' sits at one end of the row.', [0, n - 1], [v], function (a) { return at(a) === 0 || at(a) === n - 1; });
+      indirect(name + ' is not at either end.', [0, n - 1], [v], function (a) { return at(a) > 0 && at(a) < n - 1; });
+      indirect(name + ' sits beside the brightest card.', [], [v], function (a) { return Math.abs(at(a) - maxAt(a)) === 1; });
+      indirect(name + ' does not sit beside the brightest card.', [], [v], function (a) { return Math.abs(at(a) - maxAt(a)) !== 1; });
+      indirect('The brightest card lies somewhere left of the ' + MOON_NAME[v] + '.', [], [v], function (a) { return maxAt(a) < at(a); });
+      indirect('The brightest card lies somewhere right of the ' + MOON_NAME[v] + '.', [], [v], function (a) { return maxAt(a) > at(a); });
+    });
     return out;
   }
 
-  function chipsFor(tryNumber) {
-    if (tryNumber === 1) return CONFIG.CHIPS_FIRST_TRY;
-    if (tryNumber === 2) return CONFIG.CHIPS_SECOND_TRY;
-    return 0;
+  // How many direct and indirect omens each hand gets, easiest plan first.
+  // Tier 1 (Past) is two plain statements. Tier 3 (Future) needs chained reasoning.
+  var OMEN_PLANS = {
+    1: [[2, 0]],
+    2: [[2, 1], [1, 2], [3, 0]],
+    3: [[1, 2], [2, 2], [1, 3], [2, 1]]
+  };
+
+  // Shapes to try when none of a tier's own plans fits the hand.
+  var OMEN_ANY = [[1, 1], [0, 2], [2, 1], [1, 2], [3, 0], [0, 3], [2, 2]];
+
+  // Where the brightest card could be, given a list of omens: the positions not yet ruled out.
+  function omenCandidates(hand, omens) {
+    var moons = hand.map(auspice), set = {};
+    arrangements(moons).forEach(function (a) {
+      if (omens.every(function (o) { return o.test(a); })) set[maxAt(a)] = true;
+    });
+    return Object.keys(set).map(Number).sort();
+  }
+
+  // Build the omens for one hand. tier is 1, 2 or 3.
+  // Returns { top, omens: [{ text, kind, focus, moons }], steps: [positions left after each omen] }.
+  function makeOmens(hand, tier, rng) {
+    var marks = hand.map(aura), moons = hand.map(auspice), top = maxAt(moons);
+    var list = arrangements(moons), tops = list.map(maxAt);
+    var pool = omenPool(marks, moons);
+    pool.forEach(function (o) { o.mask = list.map(function (a) { return o.test(a); }); });
+    function left(set) {
+      var seen = {}, count = 0;
+      for (var x = 0; x < list.length; x++) {
+        var ok = true;
+        for (var c = 0; c < set.length; c++) { if (!set[c].mask[x]) { ok = false; break; } }
+        if (ok && !seen[tops[x]]) { seen[tops[x]] = true; count++; }
+      }
+      return count;
+    }
+    // sufficient (one place left) and lean (every omen is needed)
+    function fits(set) {
+      if (left(set) !== 1) return false;
+      for (var i = 0; i < set.length; i++) {
+        if (left(set.filter(function (o, j) { return j !== i; })) === 1) return false;
+      }
+      return true;
+    }
+    // no single omen may give the answer away
+    pool = shuffle(pool.filter(function (o) { return left([o]) > 1; }), rng);
+    var dir = pool.filter(function (o) { return o.kind === 'direct'; });
+    var ind = pool.filter(function (o) { return o.kind === 'indirect'; });
+
+    function choose(items, k, start, acc, visit) {
+      if (acc.length === k) return visit(acc);
+      for (var i = start; i < items.length; i++) {
+        if (choose(items, k, i + 1, acc.concat([items[i]]), visit)) return true;
+      }
+      return false;
+    }
+    var found = null, plans = [];
+    for (var t = tier; t >= 1; t--) plans = plans.concat(OMEN_PLANS[t]);   // fall back to an easier plan if the hand allows nothing harder
+    plans = plans.concat(OMEN_ANY);
+    for (var p = 0; p < plans.length && !found; p++) {
+      (function (nd, ni) {
+        choose(dir, nd, 0, [], function (ds) {
+          return choose(ind, ni, 0, [], function (is) {
+            var set = ds.concat(is);
+            if (fits(set)) { found = set; return true; }
+            return false;
+          });
+        });
+      })(plans[p][0], plans[p][1]);
+    }
+    if (!found) {
+      // Last resort, for a hand whose marks give nothing to reason from: say it plainly.
+      found = [{ kind: 'direct', text: 'The brightest card is ' + PLACE_NAME[top] + '.', focus: [top], moons: [],
+        test: function (a) { return maxAt(a) === top; } }];
+    }
+    var steps = found.map(function (o, i) { return omenCandidates(hand, found.slice(0, i + 1)); });
+    return {
+      top: top, steps: steps,
+      omens: found.map(function (o) { return { text: o.text, kind: o.kind, focus: o.focus, moons: o.moons, test: o.test }; })
+    };
+  }
+
+  // A hand is only dealt if it can carry a real puzzle: two omens or more, none of them a giveaway.
+  function hasPuzzle(hand) { return makeOmens(hand, 1, rngFrom('probe')).omens.length > 1; }
+
+  // The omens for all three hands of a game: plain for the Past, knotty for the Future.
+  // Everyone with the same sign on the same day gets the same omens.
+  function omensFor(game, hands) {
+    hands = hands || dealHands(game.seedKey);
+    return hands.map(function (hand, i) {
+      return makeOmens(hand, Math.min(3, i + 1), rngFrom('omens|' + game.seedKey + '|' + i));
+    });
+  }
+
+  // Insight for one hand: did the player find the brightest card, and how soon?
+  function handInsight(round, hand) {
+    var at = round.turned.indexOf(topIndex(hand));
+    return at === 0 ? CONFIG.INSIGHT_FIRST_TURN : at > 0 ? CONFIG.INSIGHT_FOUND_LATER : 0;
+  }
+
+  // Chance that a player turning cards blind finds the brightest card first in at least k of the hands.
+  function blindFirstTurnChance(k) {
+    var p = 1 / CONFIG.HAND_SIZE, n = CONFIG.ROUNDS, total = 0;
+    function comb(a, b) { var r = 1; for (var i = 0; i < b; i++) r = r * (a - i) / (i + 1); return r; }
+    for (var i = k; i <= n; i++) total += comb(n, i) * Math.pow(p, i) * Math.pow(1 - p, n - i);
+    return total;
   }
 
   /* ------------------------------- reading ---------------------------- */
@@ -620,46 +709,48 @@
   }
 
   // Plain statement of how much was the player and how much was the deck.
-  // First key: insight band (chips won from the questions). Second key: fortune band.
+  // First key: insight band (how well the omens were read). Second key: fortune band.
   var VERDICTS = {
     high: {
-      high: ['You won your chips and spent them well, and the deck met you with bright cards. Skill opened the door and luck walked through it with you.',
-        'Sharp answers, steady nerve, kind cards. You gave yourself room to dig and the deck had something to find.'],
-      mid: ['You played it well. The deck dealt an even hand and your chips made the most of it.',
-        'Good answers, fair cards. Your chips are why this landed steady.'],
-      low: ['You did your part beautifully and the deck simply ran deep today. That is the shuffle, and no reflection on you.',
-        'Your answers were sharp. The bright cards stayed out of reach all the same. Some days the deck keeps its own counsel.']
+      high: ['You read the omens true and the deck had bright cards to find. Skill found them, and luck put them there.',
+        'Clear sight and a generous deck. You found what there was to find, and today there was plenty.'],
+      mid: ['You read the omens well. The deck held an even hand today, and you took the best of it.',
+        'Good reading, fair cards. Your eye is why this landed where it did.'],
+      low: ['You read the omens well and the deck simply ran deep today. That is the shuffle, and no reflection on you.',
+        'Your reading was sharp. The deck had little light to give. Some days it keeps its own counsel.']
     },
     mid: {
-      high: ['A fair share of chips and a generous deck. Luck did some of the lifting today, and that is allowed.',
-        'You bought yourself a few second looks, and fortune filled in the rest.'],
-      mid: ['Some skill, some chance, a steady result. An honest day at the table.',
+      high: ['Some omens read, some luck, and a generous deck. Fortune did part of the lifting today, and that is allowed.',
+        'You untangled part of it, and fortune filled in the rest.'],
+      mid: ['Some sight, some chance, a steady result. An honest day at the table.',
         'You and the deck met in the middle today.'],
-      low: ['You gave yourself a few chances and the deck stayed quiet. Quiet decks happen to every reader.',
-        'Your chips bought a longer look at a deep deck. Seeing it clearly is a skill too.']
+      low: ['You read part of the omens and the deck stayed quiet. Quiet decks happen to every reader.',
+        'Part reading, part chance, and a deep deck. Seeing some of it clearly is a skill too.']
     },
     low: {
-      high: ['Today was luck, plain and simple. The questions gave you little to work with and the deck handed you its best anyway. Fortune like this is given, never earned, so enjoy it.',
-        'The questions got the better of you and the cards did not mind at all. This one is pure fortune, and it is yours.'],
-      mid: ['You had few chips and the deck met you kindly. Every answer you learned today buys more room tomorrow.',
-        'Few chips, and still a steady hand. The deck was on your side more than the questions were.'],
-      low: ['Tricky questions and a deep deck is the hard combination, and you finished the reading anyway. Every answer you saw today is a chip you will win next time.',
-        'The deck kept its bright cards hidden and the questions kept their answers. That is one day. The shuffle is new tomorrow, and you know more than you did this morning.']
+      high: ['Today was luck, plain and simple. The omens kept their secrets and the deck handed you bright cards anyway. Fortune like this is given, never earned, so enjoy it.',
+        'The omens got the better of you and the cards did not mind at all. This one is pure fortune, and it is yours.'],
+      mid: ['The omens stayed tangled and the deck met you kindly. Each one you work out buys a clearer look tomorrow.',
+        'Mostly by feel, and still a steady hand. The deck was on your side more than the omens were.'],
+      low: ['Knotty omens and a deep deck is the hard combination, and you finished the reading anyway. Every omen you saw solved today is one you will read faster next time.',
+        'The deck kept its bright cards hidden and the omens kept their meaning. That is one day. The shuffle is new tomorrow, and you know more than you did this morning.']
     }
   };
   function band3(value, lowMax, highMin) { return value <= lowMax ? 'low' : value >= highMin ? 'high' : 'mid'; }
 
   // Build everything the result screen shows. `game` is the saved state from app.js:
-  // { mode, date, sign, seedKey, rounds: [{ earned, turned: [cardIndex, in the order turned], pick, forced }] }
+  // { mode, date, sign, seedKey, rounds: [{ turned: [cardIndex, in the order turned], pick, forced }] }
   function summarize(game, hands) {
     hands = hands || dealHands(game.seedKey);
     var sign = SIGN_BY_ID[game.sign];
     var picks = game.rounds.map(function (r, i) { return hands[i][r.pick]; });
     var firsts = game.rounds.map(function (r, i) { return hands[i][r.turned[0]]; });
     var how = game.rounds.map(howKept);
-    var insight = game.rounds.reduce(function (s, r) { return s + r.earned; }, 0);
+    var points = game.rounds.map(function (r, i) { return handInsight(r, hands[i]); });
+    var insight = points.reduce(function (s, x) { return s + x; }, 0);
     var passes = game.rounds.reduce(function (s, r) { return s + r.turned.length - 1; }, 0);
-    var chipsIn = insight + CONFIG.ROUNDS * CONFIG.CHIPS_PER_HAND;
+    var chipsIn = CONFIG.ROUNDS * CONFIG.CHIPS_PER_HAND;
+    var puzzles = omensFor(game, hands);
     var score = scoreSpread(picks, game.sign);
     // What the reading would have been with no passes at all: the first card turned in each hand.
     // The gap between this and the real score is what the player's chips did.
@@ -682,7 +773,11 @@
         // every card turned in this hand, in order; the last one is the card kept
         path: r.turned.map(function (j) { return { card: hand[j], auspice: auspice(hand[j]), kept: j === r.pick }; }),
         bright: isBright(p),
-        rankInHand: brighter + 1, bestInHand: best, wasBrightest: brighter === 0
+        rankInHand: brighter + 1, bestInHand: best, wasBrightest: brighter === 0,
+        // the puzzle: where the brightest card was, whether it was found, and how the omens narrowed it down
+        top: puzzles[i].top, insight: points[i],
+        foundFirst: r.turned[0] === puzzles[i].top, found: r.turned.indexOf(puzzles[i].top) !== -1,
+        omens: puzzles[i].omens.map(function (o, k) { return { text: o.text, left: puzzles[i].steps[k] }; })
       };
     });
 
@@ -715,10 +810,19 @@
       : lift > 0 ? 'Your first turns alone made ' + firstScore.total + ' moons, a ' + TIERS[firstScore.tier].moon + '. Your passes lifted that to ' + score.total + '.'
       : lift === 0 ? 'Your passes changed the cards and the total came out the same as your first turns: ' + score.total + ' moons.'
       : 'Your first turns alone would have made ' + firstScore.total + ' moons. The chase cost ' + (-lift) + ' this time. That is the price of nerve, and on other days it pays.';
-    var firstBright = firsts.filter(isBright).length;
-    var openLine = firstBright === 3 ? 'All three of your first turns came up bright: the deck opened kindly.'
-      : firstBright === 0 ? 'None of your first turns came up bright, so anything that shines here you dug for.'
-      : firstBright + ' of your three first turns came up bright.';
+    // How often would blind turning have done as well? This is the honest line between reading and luck.
+    var firstFinds = positions.filter(function (p) { return p.foundFirst; }).length;
+    var chance = blindFirstTurnChance(firstFinds);
+    var oneIn = Math.round(1 / chance);
+    var readLine = firstFinds === 3 ? 'You turned the brightest card first in all three hands. Turning blind does that about once in ' + oneIn + ' games, so this was reading.'
+      : firstFinds === 2 ? 'You turned the brightest card first in two hands of three. Turning blind manages that about one game in ' + oneIn + '.'
+      : firstFinds === 1 ? 'You turned the brightest card first in one hand. Turning blind does at least that about every other game, so the omens and fate may share the credit.'
+      : 'None of your first turns was the brightest card today. The omens were knotty, and each one you untangle makes the next easier.';
+    // What the deck could have given at best: the luck of the deal, which no reading can change.
+    var ceiling = { total: odds.best, tier: tierFor(odds.best) };
+    var ceilingLine = score.total >= odds.best
+      ? 'This deck could give ' + odds.best + ' moons at most, and you reached it. A brighter fortune was never on the table today.'
+      : 'This deck could give ' + odds.best + ' moons at most, a ' + TIERS[ceiling.tier].moon + ' reading. That ceiling is the luck of the deal.';
 
     return {
       mode: game.mode, date: game.date, dayNo: dayNumber(game.date), sign: sign,
@@ -731,7 +835,8 @@
       blend: blend,
       quintessence: quintessence(picks),
       closing: pick(sign.opens, rng) + ' ' + closeLine,
-      verdict: verdict, liftLine: liftLine, openLine: openLine
+      verdict: verdict, liftLine: liftLine, readLine: readLine, firstFinds: firstFinds, blindChance: chance,
+      ceiling: ceiling, ceilingLine: ceilingLine
     };
   }
 
@@ -755,16 +860,17 @@
   }
 
   return {
-    CONFIG: CONFIG, TIERS: TIERS, POSITIONS: POSITIONS, INSIGHT_TITLES: INSIGHT_TITLES, POOLS: POOLS,
+    CONFIG: CONFIG, TIERS: TIERS, POSITIONS: POSITIONS, INSIGHT_TITLES: INSIGHT_TITLES,
     rngFrom: rngFrom, shuffle: shuffle, pick: pick,
     dateStr: dateStr, dayNumber: dayNumber, dailySeed: dailySeed,
     face: face, auspice: auspice, cardLabel: cardLabel, isAttuned: isAttuned, isBright: isBright,
     aura: aura, handBoard: handBoard, keepPreview: keepPreview, attunedBonus: attunedBonus,
     roman: roman, kwPhrase: kwPhrase, cap: cap,
-    dealHands: dealHands, handIsFair: handIsFair,
+    dealHands: dealHands, handIsFair: handIsFair, topIndex: topIndex,
     detectPatterns: detectPatterns, scoreSpread: scoreSpread, tierFor: tierFor,
     deckOdds: deckOdds, standing: standing,
-    materialize: materialize, questionsFor: questionsFor, chipsFor: chipsFor,
+    omensFor: omensFor, makeOmens: makeOmens, omenPool: omenPool, omenCandidates: omenCandidates, arrangements: arrangements,
+    handInsight: handInsight, blindFirstTurnChance: blindFirstTurnChance,
     howKept: howKept, quintessence: quintessence, summarize: summarize, shareText: shareText
   };
 });
