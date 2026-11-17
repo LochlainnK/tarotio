@@ -1,17 +1,21 @@
 # Tarotio
 
-A daily tarot puzzle for your star sign.
+A daily tarot logic puzzle. Everyone gets the same puzzle; every player draws their own reading.
 
-Each day a deck is shuffled for every sign and deals three hands of ten cards, face
-down in two rows of five. The reader gives you omens: a few true clues per hand that,
-together, point to exactly one card, the brightest. Work out where it hides, turn it over, and keep it. The
-three cards you keep are your Past, Present and Future, read together as your fortune for
-the day.
+Each day deals three hands of ten cards, face down in two rows of five. Every hand holds
+exactly one Full Moon, and the reader gives you omens: a few true clues per hand that,
+together, point to exactly where it is. Work out where it hides, turn it over, and keep
+it. The three cards you keep are your Past, Present and Future, read together as your
+fortune for the day.
 
-Skill decides the fortune. Every deck is dealt so that its three brightest cards make its
-best reading, and that reading is a Full Moon: read all three hands true and the Full Moon
-is yours, every day. Luck only decides the hands you leave to chance, and the result says
-plainly how often turning blind would have done as well.
+The puzzle (where every moon and suit mark sits, and the omens) is the same for everyone,
+whatever their sign. The tarot card in each place is drawn at random for you, matching its
+suit mark and moon, so two players who find the same Full Moon may turn over The Sun and
+the Ace of Cups. Your sign shapes how your cards are read.
+
+Skill decides the fortune. Your fortune is the moons of your three cards: find all three
+Full Moons and it is 15 moons, a Full Moon, every day. Luck only decides the hands you leave
+to chance, and the result says plainly how often turning blind would have done as well.
 
 ## Play it
 
@@ -28,15 +32,15 @@ Then open `http://localhost:8080`.
 
 ## How a hand works
 
-1. **Read the omens.** Two to five clues such as "The brightest card touches a Cups card"
-   or "The Half Moon shares a column with the brightest card". Every omen is true, and
+1. **Read the omens.** Two to five clues such as "The Full Moon touches a Cups card"
+   or "The Half Moon shares a column with the Full Moon". Every omen is true, and
    together they leave one card. The Past is plain; the Future always needs clues chained
    together.
 2. **Turn a card.** Tap a card to pick it up, tap again to turn it over.
-3. **Found it, or not.** The brightest card is yours the moment you turn it. Turn another
+3. **Found it, or not.** The Full Moon is yours the moment you turn it. Turn another
    card and, if you hold a chip, you can keep it or spend the chip to burn it and turn
    again. With no chips, the card you turn is the card you keep.
-4. **Win chips.** Turn the brightest card on your first try and you win a chip for the
+4. **Win chips.** Turn the Full Moon on your first try and you win a chip for the
    hands ahead. Chips are never free: second chances are earned.
 
 What you reason from:
@@ -48,9 +52,9 @@ What you reason from:
 
 Tap an omen to light the cards it speaks of. Tap the label under a card to rule it out.
 
-The three cards are read together, so the right three are worth more than their moons:
-cards in your sign's element, three of a suit, a repeated number, a run of numbers or
-your sign's own card all add to the fortune. Card meanings follow the Rider-Waite-Smith
+Patterns across your three cards (your element, three of a suit, a repeated number, a
+run, your sign's own card) colour the reading but never change the moons, so the same
+play always earns the same fortune. Card meanings follow the Rider-Waite-Smith
 tradition, including reversals.
 
 Keyboard: 1 to 5 pick up a card in the top row and 6 to 9 and 0 in the bottom row (the
@@ -79,7 +83,7 @@ npm run bundle
 While testing:
 
 - **Reset today**, in the footer, clears today's reading and its stats entry so you can
-  play today's deck again. Tap it twice. Turn it off before launch by setting
+  play today's puzzle again, with newly drawn cards. Tap it twice. Turn it off before launch by setting
   `TEST_TOOLS = false` in `js/app.js`.
 - Add `?date=YYYY-MM-DD` to the address to play another day's deck.
 - **Try a practice hand** deals a fresh random deck that never touches your stats.

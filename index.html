@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tarotio</title>
-<meta name="description" content="A daily tarot logic puzzle for your star sign. Read the omens, find the brightest card in a grid of ten, and draw the Full Moon. Skill decides it; luck only fills the gaps.">
+<meta name="description" content="A daily tarot logic puzzle. Everyone gets the same puzzle; read the omens to find the Full Moon in each hand of ten, and draw a reading that is yours alone.">
 <meta name="theme-color" content="#163b34">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='5' fill='%238d2e2a' stroke='%23f7f1dd' stroke-width='4'/%3E%3Crect x='26' y='26' width='12' height='12' transform='rotate(45 32 32)' fill='%23f2c230'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -60,7 +60,7 @@
     <section id="view-intro" class="view intro">
       <div class="intro-copy">
         <h2 class="intro-title">One reading a day, dealt for your sign.</h2>
-        <p class="intro-lead">Three hands of ten cards, face down in two rows. The reader gives you omens. Work out where the brightest card hides, turn it over, and keep the three cards that become your fortune for today.</p>
+        <p class="intro-lead">Three hands of ten cards, face down in two rows. The reader gives you omens. Work out where the Full Moon hides in each hand, turn it over, and keep the three cards that become your fortune for today. The puzzle is the same for everyone; the cards you draw are your own.</p>
         <div class="fan" aria-hidden="true">
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
@@ -69,11 +69,11 @@
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
         </div>
         <ol class="steps">
-          <li><span><b>Read the omens.</b> Each hand comes with a few true clues. Together they point to exactly one card: the brightest.</span></li>
+          <li><span><b>Read the omens.</b> Each hand comes with a few true clues. Together they point to exactly one card: the Full Moon.</span></li>
           <li><span><b>Turn a card.</b> Tap a card to pick it up, then turn it over.</span></li>
-          <li><span><b>Win chips.</b> Turn the brightest card first and the reader gives you a chip. Spend it on a later hand to pass a card and try again.</span></li>
+          <li><span><b>Win chips.</b> Turn the Full Moon first and the reader gives you a chip. Spend it on a later hand to pass a card and try again.</span></li>
         </ol>
-        <p class="intro-lead">Read all three hands true and you always draw the best reading the deck holds: a Full Moon. Luck only decides the hands you leave to chance.</p>
+        <p class="intro-lead">Find all three Full Moons and your fortune is a Full Moon, every day. Luck only decides the hands you leave to chance.</p>
       </div>
       <div class="intro-sign">
         <h3 class="sec-h" id="sign-heading">Choose your sign</h3>
@@ -131,10 +131,10 @@
   <div class="sheet-body">
     <p>Each day one deck is shuffled for every star sign. It deals you three hands of ten cards, face down in two rows of five. You keep one card from each hand: your <b>Past</b>, <b>Present</b> and <b>Future</b>.</p>
     <ol class="steps">
-      <li><span><b>Read the omens.</b> Each hand comes with two to five omens. Every omen is true, and together they leave exactly one place the brightest card can be. The Past is plain. The Future always needs omens chained together.</span></li>
+      <li><span><b>Read the omens.</b> Each hand comes with two to five omens. Every omen is true, and together they leave exactly one place the Full Moon can be. The Past is plain. The Future always needs omens chained together.</span></li>
       <li><span><b>Turn a card.</b> Tap a card to pick it up, then tap it again or press Turn it over.</span></li>
-      <li><span><b>Found it, or not.</b> Turn the brightest card and it is yours at once. Turn any other card and, if you hold a chip, you can keep it or spend the chip to pass and turn again. A passed card is burned: you cannot go back to it. With no chips, the card you turn is the card you keep.</span></li>
-      <li><span><b>Win chips.</b> Turn the brightest card on your first try and the reader gives you a chip for the hands ahead. Chips carry over, so reading the Past and Present true gives you room on the Future.</span></li>
+      <li><span><b>Found it, or not.</b> Turn the Full Moon and it is yours at once. Turn any other card and, if you hold a chip, you can keep it or spend the chip to pass and turn again. A passed card is burned: you cannot go back to it. With no chips, the card you turn is the card you keep.</span></li>
+      <li><span><b>Win chips.</b> Turn the Full Moon on your first try and the reader gives you a chip for the hands ahead. Chips carry over, so reading the Past and Present true gives you room on the Future.</span></li>
     </ol>
     <h3 class="mini-h">What you can see</h3>
     <p>Above each hand is a row of ten moons: exactly what the hand holds, but never which card is which. The mark on the back of each card is its suit, or a star for the Major Arcana. The omens tie the two together.</p>
@@ -145,21 +145,15 @@
     <p>Every card has a brightness for the day, from New Moon to Full Moon. It comes from the card&rsquo;s traditional meaning and whether it lands upright or reversed. A reversed card is often dimmer, but the hardest cards turn kinder when reversed.</p>
     <div class="legend" id="moon-legend"></div>
     <p>No card is bad. New-moon cards are the ones that ask something of you.</p>
-    <h3 class="mini-h">Building a hand</h3>
-    <p>Your three cards are read together, and the right three are worth more than their moons:</p>
-    <ul class="plain">
-      <li><b>Your element</b>: each card in your sign&rsquo;s suit, +1.</li>
-      <li><b>Your card</b>: your sign&rsquo;s own Major Arcana card, +2.</li>
-      <li><b>Trine</b> (a flush): three of one suit, +2.</li>
-      <li><b>Fate&rsquo;s Hand</b>: three Major Arcana, +2.</li>
-      <li><b>Echo</b> (a pair): two cards with the same number, +1. Three, +3.</li>
-      <li><b>The Stair</b> (a straight): three numbers in a row, +2.</li>
-    </ul>
-    <p>A reading needs 11 moons for a Half Moon, 14 for a Gibbous Moon and 16 for a Full Moon.</p>
+    <h3 class="mini-h">Your fortune</h3>
+    <p>Your fortune is the moons of the three cards you keep. Three Full Moons make 15 moons, a <b>Full Moon</b> reading. 13 or 14 is a Gibbous Moon, 11 or 12 a Half Moon, 9 or 10 a Crescent Moon.</p>
+    <h3 class="mini-h">Everyone&rsquo;s puzzle, your own cards</h3>
+    <p>Everyone gets the same puzzle each day, whatever their sign: the same moons, the same suit marks, the same omens, the Full Moons in the same places. Which tarot card lies in each place is drawn for you alone, always matching its suit mark and moon. Two players who find the same Full Moon may turn over The Sun and the Ace of Cups.</p>
+    <p>Your sign shapes how your cards are read. Cards of your element and your sign&rsquo;s own Major Arcana card speak to you most directly, and patterns across your three cards (three of a suit, a repeated number, a run) colour the reading. They never change the moons, so the same play always earns the same fortune.</p>
     <h3 class="mini-h">Skill and luck</h3>
-    <p>Every deck is dealt so that its three brightest cards make its best reading, and that reading is a Full Moon. Read all three hands true and the Full Moon is yours, every day. That part is skill.</p>
-    <p>Luck comes in only where the omens get the better of you. A card turned on a guess can still be bright, and sometimes a guess lands on the brightest card. Turning all three blind finds them about once in 125 games.</p>
-    <p>Your result shows both. <b>Insight</b> is how well you read the omens: two for each hand where your first turn was the brightest card, one where you found it after passing. <b>Fortune</b> is what the cards gave, beside the deck&rsquo;s best and how often turning blind would have done as well as you did.</p>
+    <p>Every hand holds exactly one Full Moon, and the omens always lead to it. Find all three and your fortune is a Full Moon, every day. That part is skill.</p>
+    <p>Luck comes in only where the omens get the better of you. A card turned on a guess can still be bright, and sometimes a guess lands on the Full Moon itself. Turning all three blind finds them about once in a thousand games.</p>
+    <p>Your result shows both. <b>Insight</b> is how well you read the omens: two for each hand where your first turn was the Full Moon, one where you found it after passing. <b>Fortune</b> is the moons you kept, beside how often turning blind would have done as well as you did.</p>
     <h3 class="mini-h">Keyboard</h3>
     <p>1 to 5 pick up a card in the top row, 6 to 9 and 0 in the bottom row; the same key or Enter turns it. Shift with the key rules a card out. K keeps, P passes.</p>
   </div>

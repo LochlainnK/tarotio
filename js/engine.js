@@ -1,8 +1,13 @@
 /*
  * Tarotio engine: every rule of the game, with no DOM and no storage.
  *
- * Everything here is deterministic. Given the same seed key, the same deal,
- * omens and reading text come out, on any device. The UI (app.js) only
+ * Two layers:
+ *   the puzzle  where each moon and suit mark sits, and the omens. Seeded by the date
+ *               alone, so it is the same for every player and every sign.
+ *   the cards   which tarot card fills each place. Cast at random for each game
+ *               (castCards), always matching the place's suit mark and moon, so every
+ *               player draws their own reading from the same puzzle.
+ * Given the same seed key and card seed, the same deal, omens and reading come out on any device. The UI (app.js) only
  * records what the player did and asks this file what it means.
  *
  * Works as a browser global (window.TarotioEngine) and as a Node module.
@@ -31,17 +36,13 @@
     COLS: 5,                    // of five
     HAND_SIZE: 10,
     REVERSED_CHANCE: 0.3,       // chance each dealt card lands reversed
-    CHIPS_PER_READ: 1,          // reading a hand true (its brightest card turned first) wins a chip for the hands ahead
+    CHIPS_PER_READ: 1,          // reading a hand true (its Full Moon turned first) wins a chip for the hands ahead
     PASS_PRICE: 1,              // chips paid to pass on a turned card
-    MAX_DEAL_ATTEMPTS: 40000,   // reshuffles allowed while looking for a fair deck (about one in 400 passes)
-    INSIGHT_FIRST_TURN: 2,      // the first card turned in a hand is its brightest: the omens were read true
-    INSIGHT_FOUND_LATER: 1,     // the brightest card was found after passing
-    BRIGHT_FROM: 4,             // a card is "bright" at Gibbous Moon or better
-    BONUS: { attuned: 1, signCard: 2, trine: 2, majors: 2, pair: 1, triple: 3, run: 2 },
-    // What a card in the player's own element adds, per suit. All equal: the deal rule makes a
-    // perfect reading a Full Moon for every sign, and npm run simulate confirms no element is
-    // luckier for anyone else. Change one only if the simulator shows an element falling behind.
-    ATTUNED_BY_SUIT: { wands: 1, cups: 1, swords: 1, pentacles: 1 }
+    MAX_DEAL_ATTEMPTS: 40000,   // reshuffles allowed while looking for a fair puzzle (about one in 300 passes)
+    INSIGHT_FIRST_TURN: 2,      // the first card turned in a hand is its Full Moon: the omens were read true
+    INSIGHT_FOUND_LATER: 1,     // the Full Moon was found after passing
+    FULL: 5,                    // every hand holds exactly one card of this brightness: the Full Moon to find
+    BRIGHT_FROM: 4              // a card is "bright" at Gibbous Moon or better
   };
   CONFIG.MAX_INSIGHT = CONFIG.ROUNDS * CONFIG.INSIGHT_FIRST_TURN;
 
@@ -93,7 +94,7 @@
         'Today is yours to steer. {Gift} is the right tool for it.',
         'Nothing is in your way today and nothing is pushing you. Let {gift} set the pace.'
       ] },
-    { level: 4, moon: 'Gibbous Moon', title: 'Favoured', min: 14,
+    { level: 4, moon: 'Gibbous Moon', title: 'Favoured', min: 13,
       lines: [
         'The wind is behind you. Most of what you try today goes your way.',
         'A bright hand. Lean in, and the day leans with you.',
@@ -108,7 +109,7 @@
         'Luck is close by today. Point {gift} at the thing you care about most.',
         'Ask for the thing today. With {gift} behind it, the answer leans yes.'
       ] },
-    { level: 5, moon: 'Full Moon', title: 'Blessed', min: 16,
+    { level: 5, moon: 'Full Moon', title: 'Blessed', min: 15,
       lines: [
         'A full-moon day. The cards could hardly be kinder.',
         'Everything lines up. Ask for what you want today.',
@@ -202,7 +203,8 @@
   }
   // Day 1 is CONFIG.EPOCH.
   function dayNumber(str) { return Math.round(utcDay(str) - utcDay(CONFIG.EPOCH)) + 1; }
-  function dailySeed(str, signId) { return str + '|' + signId; }
+  // The day's puzzle is the same for everyone, so its seed is the date alone.
+  function dailySeed(str) { return str; }
 
   /* ------------------------------- cards ------------------------------ */
 
@@ -210,7 +212,6 @@
   function face(c) { var card = CARD_BY_ID[c.id]; return c.rev ? card.rev : card.up; }
   function auspice(c) { return face(c).a; }
   function cardLabel(c) { return CARD_BY_ID[c.id].name + (c.rev ? ', reversed' : ''); }
-  function attunedBonus(suit) { return CONFIG.ATTUNED_BY_SUIT[suit] || CONFIG.BONUS.attuned; }
   function isAttuned(c, signId) {
     var card = CARD_BY_ID[c.id];
     return !!card.suit && card.suit === SIGN_BY_ID[signId].suit;
@@ -241,7 +242,7 @@
   // Suits are how a player builds a hand: chase their own element, or three of a kind.
   function aura(c) { return CARD_BY_ID[c.id].suit || 'major'; }
 
-  // The moon board: the five moons a hand holds, brightest first, WITHOUT saying which card is which.
+  // The moon board: the moons a hand holds, brightest first, WITHOUT saying which card is which.
   // It is public from the deal, so every pass is a gamble the player can see the size of.
   // state: 'down' (still face down), 'up' (turned, waiting for keep or pass), 'passed', 'kept'.
   var BOARD_RANK = { kept: 0, up: 1, passed: 2, down: 3 };
@@ -259,123 +260,114 @@
   // What keeping this card would do to the spread built so far.
   // `kept` is the cards already kept, `handsLeft` how many hands are still to come.
   function keepPreview(kept, card, signId, handsLeft) {
-    var B = CONFIG.BONUS;
     var before = kept.length ? scoreSpread(kept, signId) : { total: 0, patterns: [] };
     var after = scoreSpread(kept.concat([card]), signId);
-    var notes = [];
-    after.patterns.forEach(function (p) {
-      if (!p.bonus) return;
-      var was = before.patterns.filter(function (q) { return q.id === p.id; })[0];
-      var gained = p.bonus - (was ? was.bonus : 0);
-      if (gained > 0) notes.push({ title: p.title, poker: p.poker, bonus: gained });
-    });
-    // What a later card could still complete: the reason to keep a quieter card.
+    // patterns this card completes: they colour the reading, they do not change the moons
+    var notes = after.patterns.filter(function (p) {
+      return NOTABLE[p.id] && !before.patterns.some(function (q) { return q.id === p.id; });
+    }).map(function (p) { return { title: p.title, poker: p.poker }; });
     var hopes = [];
     var cards = kept.concat([card]).map(function (c) { return CARD_BY_ID[c.id]; });
     if (handsLeft > 0 && cards.length === 2) {
       var gap = Math.abs(cards[0].n - cards[1].n);
-      if (cards[0].suit && cards[0].suit === cards[1].suit) hopes.push('Two ' + SUITS[cards[0].suit].name + ': a third makes a Trine, worth +' + B.trine + '.');
-      if (!cards[0].suit && !cards[1].suit) hopes.push('Two Major Arcana: a third makes Fate\u2019s Hand, worth +' + B.majors + '.');
-      if (gap === 1 || gap === 2) hopes.push('Close numbers: the right third card makes The Stair, worth +' + B.run + '.');
+      if (cards[0].suit && cards[0].suit === cards[1].suit) hopes.push('Two ' + SUITS[cards[0].suit].name + ': a third would make a Trine in your reading.');
+      if (!cards[0].suit && !cards[1].suit) hopes.push('Two Major Arcana: a third would make Fate\u2019s Hand.');
+      if (gap === 1 || gap === 2) hopes.push('Close numbers: the right third card would make The Stair.');
     }
     return {
       gain: after.total - before.total, total: after.total, tier: tierFor(after.total),
       notes: notes, hopes: hopes, last: handsLeft === 0
     };
   }
+  // Patterns worth naming while choosing (orientation notes are left to the reading).
+  var NOTABLE = { signCard: true, attuned: true, majors: true, trine: true, triple: true, pair: true, run: true };
 
   /* -------------------------------- deal ------------------------------ */
 
-  // A hand is fair when it holds something bright to find, something deep to avoid, and
-  // exactly ONE brightest card. The omens are about "the brightest card", so it must be unique.
+  // A hand is fair when it holds exactly ONE Full Moon to find and something deep to avoid.
+  // The omens are about "the Full Moon", so it must be the only one.
   function handIsFair(hand) {
     var a = hand.map(auspice);
-    var max = Math.max.apply(null, a), min = Math.min.apply(null, a);
-    return max >= CONFIG.BRIGHT_FROM && min <= 2 && a.filter(function (x) { return x === max; }).length === 1;
+    return Math.min.apply(null, a) <= 2 && a.filter(function (x) { return x === CONFIG.FULL; }).length === 1;
   }
   function topIndex(hand) {
     var a = hand.map(auspice);
     return a.indexOf(Math.max.apply(null, a));
   }
 
-  // Shuffle the 78-card deck from the seed and deal three hands of five. No card repeats.
+  // The day's puzzle. Shuffle the 78-card deck from the seed and deal three hands of ten.
+  // These cards fix where each moon and suit mark sits; castCards() then chooses, for each
+  // player, which tarot card fills each place.
   //
-  // A deck is only used if:
-  //   1. every hand is fair: one brightest card, Gibbous or better, and a dim card to avoid;
-  //   2. the three brightest cards together make this deck's best reading for this sign;
-  //   3. that reading is a Full Moon;
-  //   4. every hand carries a real puzzle, and the Future's needs omens chained together.
-  // Rules 2 and 3 are what make Tarotio a game of skill: read all three hands true and you
-  // always draw the best reading the deck holds, and it is always a Full Moon. Luck only
-  // decides the hands the omens do not solve.
+  // A puzzle is only used if:
+  //   1. every hand holds exactly one Full Moon, and a dim card to avoid;
+  //   2. every hand carries a real puzzle, and the Future's needs omens chained together.
+  // Rule 1 is what makes Tarotio a game of skill: read all three hands true and you hold
+  // three Full Moons, 15 moons, the best reading there is, every day, for every player.
   //
-  // The sign is part of the rule because bonuses depend on it. Unfair deals are reshuffled
-  // with the next attempt number, so the result is still the same on every device.
-  function dealHands(seedKey, signId) {
-    if (!SIGN_BY_ID[signId]) throw new Error('dealHands needs a sign: ' + signId);
+  // Unfair deals are reshuffled with the next attempt number, so the result is still the
+  // same on every device. The puzzle does not depend on the sign.
+  function dealHands(seedKey) {
     var ids = CARDS.map(function (c) { return c.id; });
-    var full = TIERS[5].min, fallback = null;
+    var fallback = null, hands = null;
     for (var attempt = 0; attempt < CONFIG.MAX_DEAL_ATTEMPTS; attempt++) {
       var rng = rngFrom('deal|' + seedKey + '|' + attempt);
       var drawn = shuffle(ids, rng).slice(0, CONFIG.ROUNDS * CONFIG.HAND_SIZE).map(function (id) {
         return { id: id, rev: rng() < CONFIG.REVERSED_CHANCE };
       });
-      var hands = [];
+      hands = [];
       for (var r = 0; r < CONFIG.ROUNDS; r++) hands.push(drawn.slice(r * CONFIG.HAND_SIZE, (r + 1) * CONFIG.HAND_SIZE));
-      // cheapest checks first
       if (!hands.every(handIsFair)) continue;
       if (!fallback) fallback = hands;
-      var perfect = quickTotal(hands.map(function (h) { return h[topIndex(h)]; }), signId);
-      if (perfect < full) continue;
-      if (beatenBy(hands, signId, perfect)) continue;
       if (!hands.every(hasPuzzle)) continue;
       // the Future must need chained reasoning: build its real omens and check
       if (!makeOmens(hands[CONFIG.ROUNDS - 1], 3, rngFrom('omens|' + seedKey + '|' + (CONFIG.ROUNDS - 1))).chained) continue;
       return hands;
     }
-    // Not reached in practice (fair decks come up about one shuffle in four hundred). Kept so
-    // a deal can never hang: the first fair deck seen is used instead.
+    // Not reached in practice. Kept so a deal can never hang.
     return fallback || hands;
   }
 
-  // The same total as scoreSpread(picks, signId).total, as plain arithmetic with no text.
-  // Used while dealing, where a thousand readings are scored per deck. A test keeps the two equal.
-  function quickTotal(picks, signId) {
-    var sign = SIGN_BY_ID[signId], B = CONFIG.BONUS, total = 0, majors = 0, attuned = 0;
-    var suits = {}, nums = [];
-    for (var i = 0; i < picks.length; i++) {
-      var card = CARD_BY_ID[picks[i].id];
-      total += auspice(picks[i]);
-      if (card.id === sign.card) total += B.signCard;
-      if (card.suit) {
-        suits[card.suit] = (suits[card.suit] || 0) + 1;
-        if (card.suit === sign.suit) attuned++;
-      } else majors++;
-      nums.push(card.n);
-    }
-    total += attuned * attunedBonus(sign.suit);
-    if (majors === 3) total += B.majors;
-    for (var s in suits) if (suits[s] === 3) total += B.trine;
-    nums.sort(function (a, b) { return a - b; });
-    if (nums[0] === nums[1] && nums[1] === nums[2]) total += B.triple;
-    else if (nums[0] === nums[1] || nums[1] === nums[2]) total += B.pair;
-    if (nums[1] === nums[0] + 1 && nums[2] === nums[1] + 1) total += B.run;
-    return total;
-  }
-  // Does any reading (one card from each hand) score more than the given total?
-  function beatenBy(hands, signId, total) {
-    for (var a = 0; a < hands[0].length; a++) {
-      for (var b = 0; b < hands[1].length; b++) {
-        for (var c = 0; c < hands[2].length; c++) {
-          if (quickTotal([hands[0][a], hands[1][b], hands[2][c]], signId) > total) return true;
-        }
+  // Every card face, grouped by what the puzzle shows: its suit mark and its moon.
+  var FACES = {};
+  CARDS.forEach(function (c) {
+    [false, true].forEach(function (rev) {
+      var f = { id: c.id, rev: rev }, key = aura(f) + '|' + auspice(f);
+      (FACES[key] = FACES[key] || []).push(f);
+    });
+  });
+  function faceKey(c) { return aura(c) + '|' + auspice(c); }
+
+  // Cast the cards for one player. Every place keeps its suit mark and its moon, so the puzzle
+  // and the omens are unchanged, but the tarot card there is drawn at random from all the faces
+  // that fit, with no card used twice. The places with fewest fitting faces are filled first.
+  // A casting always exists: the cards dealHands() drew are one.
+  function castCards(hands, cardSeed) {
+    var rng = rngFrom('cast|' + cardSeed);
+    var places = [];
+    hands.forEach(function (h, i) { h.forEach(function (c, j) { places.push({ i: i, j: j, key: faceKey(c) }); }); });
+    places = shuffle(places, rng).sort(function (a, b) { return FACES[a.key].length - FACES[b.key].length; });
+    var used = {}, chosen = [], steps = 0;
+    function fill(k) {
+      if (k === places.length) return true;
+      if (++steps > 20000) return false;
+      var options = shuffle(FACES[places[k].key], rng);
+      for (var o = 0; o < options.length; o++) {
+        if (used[options[o].id]) continue;
+        used[options[o].id] = true;
+        chosen[k] = options[o];
+        if (fill(k + 1)) return true;
+        used[options[o].id] = false;
       }
+      return false;
     }
-    return false;
+    if (!fill(0)) return hands;   // not reached in practice; the dealt cards are a valid casting
+    var out = hands.map(function (h) { return h.slice(); });
+    places.forEach(function (pl, k) { out[pl.i][pl.j] = chosen[k]; });
+    return out;
   }
 
-  // The reading a perfect reader draws: the brightest card of each hand. The deal makes sure
-  // this is also the deck's best reading, and a Full Moon.
+  // The reading a perfect reader draws: the Full Moon of each hand. Always 15 moons.
   function perfectReading(hands, signId) {
     return scoreSpread(hands.map(function (h) { return h[topIndex(h)]; }), signId);
   }
@@ -389,12 +381,11 @@
     var sign = SIGN_BY_ID[signId];
     var cards = picks.map(function (p) { return CARD_BY_ID[p.id]; });
     var out = [];
-    var B = CONFIG.BONUS;
 
     // The sign's own Major Arcana card.
     cards.forEach(function (c) {
       if (c.id === sign.card) {
-        out.push({ id: 'signCard', title: 'Your card found you', poker: 'the wild card', bonus: B.signCard,
+        out.push({ id: 'signCard', title: 'Your card found you', poker: 'the wild card',
           text: c.name + ' is the card of ' + sign.name + '. When your own card turns up, the day is addressed to you personally.' });
       }
     });
@@ -404,18 +395,16 @@
     if (attuned.length) {
       var names = attuned.map(function (c) { return c.name; });
       var suitName = SUITS[sign.suit].name;
-      var step = attunedBonus(sign.suit);
-      var steps = step === 1 ? 'one step' : 'two steps';
-      out.push({ id: 'attuned', title: 'Attuned to ' + sign.element, poker: null, bonus: step * attuned.length,
+      out.push({ id: 'attuned', title: 'Attuned to ' + sign.element, poker: null,
         text: (attuned.length === 1
-          ? names[0] + ' is a ' + suitName + ' card, and ' + suitName + ' is the suit of ' + sign.element + ', your element. It shines ' + steps + ' brighter for you.'
-          : listAnd(names) + ' are ' + suitName + ' cards, the suit of ' + sign.element + ', your element. Each shines ' + steps + ' brighter for you.') });
+          ? names[0] + ' is a ' + suitName + ' card, and ' + suitName + ' is the suit of ' + sign.element + ', your element. It speaks to you most directly today.'
+          : listAnd(names) + ' are ' + suitName + ' cards, the suit of ' + sign.element + ', your element. They speak to you most directly today.') });
     }
 
     // Major Arcana count.
     var majors = cards.filter(function (c) { return c.arcana === 'major'; }).length;
     if (majors === 3) {
-      out.push({ id: 'majors', title: 'Fate’s Hand', poker: 'three of a kind', bonus: B.majors,
+      out.push({ id: 'majors', title: 'Fate’s Hand', poker: 'three of a kind',
         text: 'All three cards are Major Arcana. Readers take that as a day shaped by large forces. Pay attention; today matters.' });
     }
 
@@ -424,7 +413,7 @@
     cards.forEach(function (c) { if (c.suit) suitCount[c.suit] = (suitCount[c.suit] || 0) + 1; });
     Object.keys(suitCount).forEach(function (s) {
       if (suitCount[s] === 3) {
-        out.push({ id: 'trine', title: 'Trine of ' + SUITS[s].name, poker: 'a flush', bonus: B.trine, text: SUITS[s].trine });
+        out.push({ id: 'trine', title: 'Trine of ' + SUITS[s].name, poker: 'a flush', text: SUITS[s].trine });
       }
     });
 
@@ -434,10 +423,10 @@
     Object.keys(numCount).forEach(function (n) {
       var meaning = NUMBER_MEANING[n] || 'The same number twice means the message repeats so that you hear it.';
       if (numCount[n] === 3) {
-        out.push({ id: 'triple', title: 'Triple ' + n, poker: 'three of a kind', bonus: B.triple,
+        out.push({ id: 'triple', title: 'Triple ' + n, poker: 'three of a kind',
           text: 'The same number three times is the loudest signal a spread can send. ' + meaning });
       } else if (numCount[n] === 2) {
-        out.push({ id: 'pair', title: 'Echo of ' + n + 's', poker: 'a pair', bonus: B.pair,
+        out.push({ id: 'pair', title: 'Echo of ' + n + 's', poker: 'a pair',
           text: 'Two cards share the number ' + n + '. ' + meaning });
       }
     });
@@ -445,17 +434,17 @@
     // A run of three consecutive numbers.
     var nums = cards.map(function (c) { return c.n; }).sort(function (a, b) { return a - b; });
     if (nums[1] === nums[0] + 1 && nums[2] === nums[1] + 1) {
-      out.push({ id: 'run', title: 'The Stair', poker: 'a straight', bonus: B.run,
+      out.push({ id: 'run', title: 'The Stair', poker: 'a straight',
         text: nums.join(', ') + ': the numbers climb in order. Readers see a run as a story moving forward one step at a time.' });
     }
 
     // Orientation.
     var reversed = picks.filter(function (p) { return p.rev; }).length;
     if (reversed === 0) {
-      out.push({ id: 'upright', title: 'All upright', poker: null, bonus: 0,
+      out.push({ id: 'upright', title: 'All upright', poker: null,
         text: 'Every card landed upright, so the day’s energy runs outward and clear.' });
     } else if (reversed === 3) {
-      out.push({ id: 'reversed', title: 'All reversed', poker: null, bonus: 0,
+      out.push({ id: 'reversed', title: 'All reversed', poker: null,
         text: 'Every card landed reversed. Today’s work happens on the inside, and it counts just as much.' });
     }
     return out;
@@ -473,26 +462,26 @@
   }
 
   // The brightness of a three-card spread: the cards' moons plus pattern bonuses.
+  // The fortune is the moons of the cards kept: 3 to 15 for three cards. Patterns (a Trine, your
+  // own card, a run) are found for the reading text but do not change the moons, so two players
+  // who play the same puzzle the same way always draw the same fortune.
   function scoreSpread(picks, signId) {
-    var base = 0;
-    picks.forEach(function (p) { base += auspice(p); });
-    var patterns = detectPatterns(picks, signId);
-    var bonus = 0;
-    patterns.forEach(function (p) { bonus += p.bonus; });
-    var total = base + bonus;
-    return { base: base, bonus: bonus, total: total, tier: tierFor(total), patterns: patterns };
+    var total = 0;
+    picks.forEach(function (p) { total += auspice(p); });
+    return { base: total, total: total, tier: tierFor(total), patterns: detectPatterns(picks, signId) };
   }
 
   // Every reading today's deck could have produced: one card from each hand, 10 x 10 x 10 = 1,000.
   // This is what lets the game say, in numbers, how much of a result was the deck.
-  function deckOdds(hands, signId) {
+  function deckOdds(hands) {
     var totals = [], tierCounts = [0, 0, 0, 0, 0, 0];
-    hands[0].forEach(function (a) {
-      hands[1].forEach(function (b) {
-        hands[2].forEach(function (c) {
-          var s = scoreSpread([a, b, c], signId);
-          totals.push(s.total);
-          tierCounts[s.tier]++;
+    var m = hands.map(function (h) { return h.map(auspice); });
+    m[0].forEach(function (a) {
+      m[1].forEach(function (b) {
+        m[2].forEach(function (c) {
+          var t = a + b + c;
+          totals.push(t);
+          tierCounts[tierFor(t)]++;
         });
       });
     });
@@ -519,15 +508,15 @@
   /* -------------------------------- omens ----------------------------- */
 
   // The puzzle. Each hand is a grid of cards, two rows of five, face down. It comes with a few
-  // omens: true statements that, taken together, leave exactly one place the brightest card
+  // omens: true statements that, taken together, leave exactly one place the Full Moon
   // can be. The player can see where each card sits, the suit mark on its back, and the
   // hand's moons (the board), and has to work out the rest.
   //
   // Two kinds of omen:
-  //   direct   about the brightest card itself: its row, column, corner, suit, and what it
+  //   direct   about the Full Moon itself: its row, column, corner, suit, and what it
   //            touches. Each is simply a set of places.
   //   indirect about other cards: "X outshines Y", "the Half Moon is in the top row",
-  //            "the Half Moon touches the brightest card". These must be chained.
+  //            "the Half Moon touches the Full Moon". These must be chained.
   //
   // Fairness is proved, not hoped for. For a set of omens, a place is still possible for the
   // brightest card if SOME layout of the hand's moons makes every omen true with the brightest
@@ -579,7 +568,7 @@
   var OUTER = COL_SET[0] | COL_SET[COLS - 1];
   function colsWhere(test) { return setOf(places().filter(function (p) { return test(colOf(p)); })); }
 
-  // Where a named moon may sit, relative to the brightest card at c.
+  // Where a named moon may sit, relative to the Full Moon at c.
   function relSet(rel, c) {
     switch (rel) {
       case 'touch': return TOUCH[c];
@@ -587,8 +576,8 @@
       case 'sameCol': return COL_SET[colOf(c)] & ~bit(c);
       case 'sameRow': return ROW_SET[rowOf(c)] & ~bit(c);
       case 'otherRow': return ALL & ~ROW_SET[rowOf(c)];
-      case 'topLeft': return colsWhere(function (x) { return x > colOf(c); });    // the brightest card lies left of it
-      case 'topRight': return colsWhere(function (x) { return x < colOf(c); });   // the brightest card lies right of it
+      case 'topLeft': return colsWhere(function (x) { return x > colOf(c); });    // the Full Moon lies left of it
+      case 'topRight': return colsWhere(function (x) { return x < colOf(c); });   // the Full Moon lies right of it
     }
     throw new Error('unknown relation ' + rel);
   }
@@ -597,7 +586,7 @@
   //   { type: 'dim', p }         the card at p is dimmer than every card it touches
   //   { type: 'peak', p }        the card at p outshines every card it touches
   //   { type: 'place', v, set }  the only card with moon v sits in set
-  //   { type: 'rel', v, rel }    the only card with moon v sits in relation rel to the brightest card
+  //   { type: 'rel', v, rel }    the only card with moon v sits in relation rel to the Full Moon
   function conPlaces(k) { return k.type === 'cmp' ? [k.p, k.q] : [k.p].concat(touching(k.p)); }
   function conHolds(k, moonAt) {
     if (k.type === 'cmp') return moonAt(k.p) > moonAt(k.q);
@@ -611,7 +600,7 @@
     return conHolds(k, function (p) { return a[p]; });
   }
 
-  // Can the brightest card (moon T) sit at c with every constraint true, given the hand's moon counts?
+  // Can the Full Moon (moon T) sit at c with every constraint true, given the hand's moon counts?
   // An exact search over only the places and moons the constraints name. Every other place
   // takes whatever moons are left, which always fits, because places and moons number the same.
   function feasible(c, cons, counts0, T) {
@@ -668,7 +657,7 @@
     moons.forEach(function (v) { counts[v]++; });
     return { marks: hand.map(aura), moons: moons, top: top, T: moons[top], counts: counts };
   }
-  // The places the brightest card could still be in, as a bit mask, given a list of omens.
+  // The places the Full Moon could still be in, as a bit mask, given a list of omens.
   function candidateMask(facts, omens) {
     var m = ALL, cons = [];
     omens.forEach(function (o) { if (o.kind === 'direct') m &= o.set; else cons.push(o.con); });
@@ -710,40 +699,40 @@
     }
     function any(test) { return setOf(places().filter(test)); }
 
-    // ---- the brightest card itself
-    [0, 1].forEach(function (r) { D('The brightest card is in the ' + ROW_NAME[r] + '.', ROW_SET[r], ROW_SET[r]); });
-    D('The brightest card is in one of the two outer columns.', OUTER, OUTER);
-    D('The brightest card is not in an outer column.', ALL & ~OUTER, OUTER);
-    D('The brightest card is in the middle column.', COL_SET[2], COL_SET[2]);
-    D('The brightest card is not in the middle column.', ALL & ~COL_SET[2], COL_SET[2]);
-    D('The brightest card lies left of the middle column.', COL_SET[0] | COL_SET[1], COL_SET[0] | COL_SET[1]);
-    D('The brightest card lies right of the middle column.', COL_SET[3] | COL_SET[4], COL_SET[3] | COL_SET[4]);
-    D('The brightest card sits in a corner.', CORNERS, CORNERS);
-    D('The brightest card is not in a corner.', ALL & ~CORNERS, CORNERS);
+    // ---- the Full Moon itself
+    [0, 1].forEach(function (r) { D('The Full Moon is in the ' + ROW_NAME[r] + '.', ROW_SET[r], ROW_SET[r]); });
+    D('The Full Moon is in one of the two outer columns.', OUTER, OUTER);
+    D('The Full Moon is not in an outer column.', ALL & ~OUTER, OUTER);
+    D('The Full Moon is in the middle column.', COL_SET[2], COL_SET[2]);
+    D('The Full Moon is not in the middle column.', ALL & ~COL_SET[2], COL_SET[2]);
+    D('The Full Moon lies left of the middle column.', COL_SET[0] | COL_SET[1], COL_SET[0] | COL_SET[1]);
+    D('The Full Moon lies right of the middle column.', COL_SET[3] | COL_SET[4], COL_SET[3] | COL_SET[4]);
+    D('The Full Moon sits in a corner.', CORNERS, CORNERS);
+    D('The Full Moon is not in a corner.', ALL & ~CORNERS, CORNERS);
     kinds.forEach(function (k) {
       var w = where(k), name = markName(k);
-      if (count[k] >= 2) D('The brightest card is a ' + name + ' card.', w, w);
-      D('The brightest card is not a ' + name + ' card.', ALL & ~w, w);
+      if (count[k] >= 2) D('The Full Moon is a ' + name + ' card.', w, w);
+      D('The Full Moon is not a ' + name + ' card.', ALL & ~w, w);
       var near = any(function (p) { return touching(p).some(function (q) { return marks[q] === k; }); });
-      D('The brightest card touches a ' + name + ' card.', near, w);
-      D('The brightest card does not touch a ' + name + ' card.', ALL & ~near, w);
-      D('The brightest card is directly above or below a ' + name + ' card.', any(function (p) { return columnMates(p).some(function (q) { return marks[q] === k; }); }), w);
-      D('The brightest card sits beside a ' + name + ' card in its row.', any(function (p) { return besideInRow(p).some(function (q) { return marks[q] === k; }); }), w);
+      D('The Full Moon touches a ' + name + ' card.', near, w);
+      D('The Full Moon does not touch a ' + name + ' card.', ALL & ~near, w);
+      D('The Full Moon is directly above or below a ' + name + ' card.', any(function (p) { return columnMates(p).some(function (q) { return marks[q] === k; }); }), w);
+      D('The Full Moon sits beside a ' + name + ' card in its row.', any(function (p) { return besideInRow(p).some(function (q) { return marks[q] === k; }); }), w);
       if (count[k] === 1) {
         var q = listOf(w)[0];
-        D('The brightest card lies in a column left of the ' + name + ' card.', colsWhere(function (x) { return x < colOf(q); }), w);
-        D('The brightest card lies in a column right of the ' + name + ' card.', colsWhere(function (x) { return x > colOf(q); }), w);
-        D('The brightest card is in the same row as the ' + name + ' card.', ROW_SET[rowOf(q)] & ~w, w);
-        D('The brightest card is not in the same row as the ' + name + ' card.', ALL & ~ROW_SET[rowOf(q)], w);
-        D('The brightest card sits diagonally next to the ' + name + ' card.', setOf(diagonal(q)), w);
+        D('The Full Moon lies in a column left of the ' + name + ' card.', colsWhere(function (x) { return x < colOf(q); }), w);
+        D('The Full Moon lies in a column right of the ' + name + ' card.', colsWhere(function (x) { return x > colOf(q); }), w);
+        D('The Full Moon is in the same row as the ' + name + ' card.', ROW_SET[rowOf(q)] & ~w, w);
+        D('The Full Moon is not in the same row as the ' + name + ' card.', ALL & ~ROW_SET[rowOf(q)], w);
+        D('The Full Moon sits diagonally next to the ' + name + ' card.', setOf(diagonal(q)), w);
       }
     });
     var alone = any(function (p) { return count[marks[p]] === 1; });
-    D('The brightest card is the only one of its suit in this hand.', alone, alone);
-    D('The brightest card shares its suit with another card here.', ALL & ~alone, ALL & ~alone);
-    D('The brightest card shares its column with a card of its own suit.',
+    D('The Full Moon is the only one of its suit in this hand.', alone, alone);
+    D('The Full Moon shares its suit with another card here.', ALL & ~alone, ALL & ~alone);
+    D('The Full Moon shares its column with a card of its own suit.',
       any(function (p) { return columnMates(p).some(function (q) { return marks[q] === marks[p]; }); }), ALL);
-    D('The brightest card sits between two cards of the same suit in its row.',
+    D('The Full Moon sits between two cards of the same suit in its row.',
       any(function (p) { return colOf(p) > 0 && colOf(p) < COLS - 1 && marks[p - 1] === marks[p + 1]; }), ALL);
 
     // ---- other cards
@@ -763,13 +752,13 @@
       else I(name + ' is the ' + markName(k) + ' card.', { type: 'place', v: v, set: bit(q) }, [q], [v]);
       I(name + ' sits in a corner.', { type: 'place', v: v, set: CORNERS }, listOf(CORNERS), [v]);
       I(name + ' is not in a corner.', { type: 'place', v: v, set: ALL & ~CORNERS }, listOf(CORNERS), [v]);
-      I(name + ' touches the brightest card.', { type: 'rel', v: v, rel: 'touch' }, [], [v]);
-      I(name + ' does not touch the brightest card.', { type: 'rel', v: v, rel: 'notTouch' }, [], [v]);
-      I(name + ' shares a column with the brightest card.', { type: 'rel', v: v, rel: 'sameCol' }, [], [v]);
-      I(name + ' is in the same row as the brightest card.', { type: 'rel', v: v, rel: 'sameRow' }, [], [v]);
-      I(name + ' is not in the same row as the brightest card.', { type: 'rel', v: v, rel: 'otherRow' }, [], [v]);
-      I('The brightest card lies in a column left of the ' + MOON_NAME[v] + '.', { type: 'rel', v: v, rel: 'topLeft' }, [], [v]);
-      I('The brightest card lies in a column right of the ' + MOON_NAME[v] + '.', { type: 'rel', v: v, rel: 'topRight' }, [], [v]);
+      I(name + ' touches the Full Moon.', { type: 'rel', v: v, rel: 'touch' }, [], [v]);
+      I(name + ' does not touch the Full Moon.', { type: 'rel', v: v, rel: 'notTouch' }, [], [v]);
+      I(name + ' shares a column with the Full Moon.', { type: 'rel', v: v, rel: 'sameCol' }, [], [v]);
+      I(name + ' is in the same row as the Full Moon.', { type: 'rel', v: v, rel: 'sameRow' }, [], [v]);
+      I(name + ' is not in the same row as the Full Moon.', { type: 'rel', v: v, rel: 'otherRow' }, [], [v]);
+      I('The Full Moon lies in a column left of the ' + MOON_NAME[v] + '.', { type: 'rel', v: v, rel: 'topLeft' }, [], [v]);
+      I('The Full Moon lies in a column right of the ' + MOON_NAME[v] + '.', { type: 'rel', v: v, rel: 'topRight' }, [], [v]);
     });
     return { direct: direct, indirect: indirect };
   }
@@ -855,7 +844,7 @@
     }
     if (!found) {
       // Not reached in practice: dealHands only deals hands that carry a real puzzle.
-      found = [{ kind: 'direct', text: 'The brightest card is the ' + ORDINAL[colOf(top)] + ' card of the ' + ROW_NAME[rowOf(top)] + '.',
+      found = [{ kind: 'direct', text: 'The Full Moon is the ' + ORDINAL[colOf(top)] + ' card of the ' + ROW_NAME[rowOf(top)] + '.',
         set: bit(top), focus: [top], moons: [], test: function (a) { return maxAt(a) === top; } }];
     }
     return {
@@ -898,9 +887,9 @@
   // Worked out once per deck and kept for the session (the Future hand can take a few tens of ms).
   var omenCache = {}, omenCacheKeys = [];
   function omensFor(game, hands) {
-    var key = game.seedKey + '|' + game.sign;
+    var key = game.seedKey;   // omens depend only on the puzzle, never on which cards were cast
     if (omenCache[key]) return omenCache[key];
-    hands = hands || dealHands(game.seedKey, game.sign);
+    hands = hands || dealHands(game.seedKey);
     var out = hands.map(function (hand, i) {
       return makeOmens(hand, Math.min(3, i + 1), rngFrom('omens|' + game.seedKey + '|' + i));
     });
@@ -910,13 +899,13 @@
     return out;
   }
 
-  // Insight for one hand: did the player find the brightest card, and how soon?
+  // Insight for one hand: did the player find the Full Moon, and how soon?
   function handInsight(round, hand) {
     var at = round.turned.indexOf(topIndex(hand));
     return at === 0 ? CONFIG.INSIGHT_FIRST_TURN : at > 0 ? CONFIG.INSIGHT_FOUND_LATER : 0;
   }
 
-  // Chips won by reading hands true: one for each hand whose brightest card was turned first,
+  // Chips won by reading hands true: one for each hand whose Full Moon was turned first,
   // except the last hand, where there is nothing left to spend it on. Counts finished hands only.
   function chipsWon(rounds, hands) {
     var won = 0;
@@ -927,7 +916,7 @@
     return won;
   }
 
-  // Chance that a player turning cards blind finds the brightest card first in at least k of the hands.
+  // Chance that a player turning cards blind finds the Full Moon first in at least k of the hands.
   function blindFirstTurnChance(k) {
     var p = 1 / CONFIG.HAND_SIZE, n = CONFIG.ROUNDS, total = 0;
     function comb(a, b) { var r = 1; for (var i = 0; i < b; i++) r = r * (a - i) / (i + 1); return r; }
@@ -999,7 +988,7 @@
   // Build everything the result screen shows. `game` is the saved state from app.js:
   // { mode, date, sign, seedKey, rounds: [{ turned: [cardIndex, in the order turned], pick, forced }] }
   function summarize(game, hands) {
-    hands = hands || dealHands(game.seedKey, game.sign);
+    hands = hands || castCards(dealHands(game.seedKey), game.cardSeed);
     var sign = SIGN_BY_ID[game.sign];
     var picks = game.rounds.map(function (r, i) { return hands[i][r.pick]; });
     var firsts = game.rounds.map(function (r, i) { return hands[i][r.turned[0]]; });
@@ -1013,7 +1002,7 @@
     // What the reading would have been with no passes at all: the first card turned in each hand.
     // The gap between this and the real score is what the player's chips did.
     var firstScore = scoreSpread(firsts, game.sign);
-    var odds = deckOdds(hands, game.sign);
+    var odds = deckOdds(hands);
     var stand = standing(odds, score.total);
     var tier = TIERS[score.tier];
     var rng = rngFrom('read|' + game.seedKey + '|' + picks.map(function (p) { return p.id + (p.rev ? 'r' : 'u'); }).join(','));
@@ -1032,7 +1021,7 @@
         path: r.turned.map(function (j) { return { card: hand[j], auspice: auspice(hand[j]), kept: j === r.pick }; }),
         bright: isBright(p),
         rankInHand: brighter + 1, bestInHand: best, wasBrightest: brighter === 0,
-        // the puzzle: where the brightest card was, whether it was found, and how the omens narrowed it down
+        // the puzzle: where the Full Moon was, whether it was found, and how the omens narrowed it down
         top: puzzles[i].top, insight: points[i],
         foundFirst: r.turned[0] === puzzles[i].top, found: r.turned.indexOf(puzzles[i].top) !== -1,
         omens: puzzles[i].omens.map(function (o, k) { return { text: o.text, left: puzzles[i].steps[k] }; })
@@ -1072,18 +1061,18 @@
     var firstFinds = positions.filter(function (p) { return p.foundFirst; }).length;
     var chance = blindFirstTurnChance(firstFinds);
     var oneIn = Math.round(1 / chance);
-    var readLine = firstFinds === 3 ? 'You turned the brightest card first in all three hands. Turning blind does that about once in ' + oneIn + ' games, so this was reading.'
-      : firstFinds === 2 ? 'You turned the brightest card first in two hands of three. Turning blind manages that about one game in ' + oneIn + '.'
-      : firstFinds === 1 ? 'You turned the brightest card first in one hand. Turning blind does at least that about every other game, so the omens and fate may share the credit.'
-      : 'None of your first turns was the brightest card today. The omens were knotty, and each one you untangle makes the next easier.';
+    var readLine = firstFinds === 3 ? 'You turned the Full Moon first in all three hands. Turning blind does that about once in ' + oneIn + ' games, so this was reading.'
+      : firstFinds === 2 ? 'You turned the Full Moon first in two hands of three. Turning blind manages that about one game in ' + oneIn + '.'
+      : firstFinds === 1 ? 'You turned the Full Moon first in one hand. Turning blind does at least that about every other game, so the omens and fate may share the credit.'
+      : 'None of your first turns was a Full Moon today. The omens were knotty, and each one you untangle makes the next easier.';
     // What the deck could have given at best: the luck of the deal, which no reading can change.
     var ceiling = { total: odds.best, tier: tierFor(odds.best) };
     var perfectRead = firstFinds === CONFIG.ROUNDS;
     var ceilingLine = perfectRead
-      ? 'You read all three hands true, so you drew the best reading this deck held: ' + odds.best + ' moons. That is skill, and it will work on any day\u2019s deck.'
+      ? 'You read all three hands true and drew three Full Moons, ' + odds.best + ' moons, the best reading anyone can draw today. That is skill, and it works on any day\u2019s puzzle.'
       : score.total >= odds.best
-      ? 'You reached this deck\u2019s best reading, ' + odds.best + ' moons, even with a hand left to chance. Fortune helped.'
-      : 'This deck\u2019s best reading was ' + odds.best + ' moons: its three brightest cards, the ones the omens point to. Every deck is dealt so that reading all three hands true gives a Full Moon.';
+      ? 'You found all three Full Moons, ' + odds.best + ' moons, even with a hand left to chance. Fortune helped.'
+      : 'Every hand holds one Full Moon, and the omens point to each of them. All three make ' + odds.best + ' moons, a Full Moon reading, for anyone who reads them true.';
 
     return {
       mode: game.mode, date: game.date, dayNo: dayNumber(game.date), sign: sign,
@@ -1114,7 +1103,7 @@
     var stars = '';
     for (var i = 0; i < CONFIG.MAX_INSIGHT; i++) stars += i < sum.insight ? '✦' : '✧';
     lines.push('Insight ' + stars + ' ' + sum.insight + '/' + CONFIG.MAX_INSIGHT);
-    lines.push(sum.standing.isBest ? 'The brightest reading in the deck' : 'Brighter than ' + sum.standing.pct + '% of the deck');
+    lines.push(sum.standing.isBest ? 'Three Full Moons' : 'Brighter than ' + sum.standing.pct + '% of the readings in the deck');
     lines.push('Each row is a hand. Last moon = the card kept.');
     if (url) lines.push(url);
     return lines.join('\n');
@@ -1125,9 +1114,9 @@
     rngFrom: rngFrom, shuffle: shuffle, pick: pick,
     dateStr: dateStr, dayNumber: dayNumber, dailySeed: dailySeed,
     face: face, auspice: auspice, cardLabel: cardLabel, isAttuned: isAttuned, isBright: isBright,
-    aura: aura, handBoard: handBoard, keepPreview: keepPreview, attunedBonus: attunedBonus,
+    aura: aura, handBoard: handBoard, keepPreview: keepPreview, castCards: castCards,
     roman: roman, kwPhrase: kwPhrase, cap: cap,
-    dealHands: dealHands, handIsFair: handIsFair, topIndex: topIndex, perfectReading: perfectReading, chipsWon: chipsWon, quickTotal: quickTotal,
+    dealHands: dealHands, handIsFair: handIsFair, topIndex: topIndex, perfectReading: perfectReading, chipsWon: chipsWon,
     detectPatterns: detectPatterns, scoreSpread: scoreSpread, tierFor: tierFor,
     deckOdds: deckOdds, standing: standing,
     omensFor: omensFor, makeOmens: makeOmens, omenCandidates: omenCandidates, arrangements: arrangements,

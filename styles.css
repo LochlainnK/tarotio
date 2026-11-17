@@ -714,6 +714,7 @@ b { font-weight: 700; }
 .notes { display: grid; gap: 0.3rem; font-family: var(--font-ui); font-size: var(--t-sm); }
 .notes li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
 .notes .hope { color: var(--chalk-dim); }
+.pat-mark { width: 0.55rem; height: 0.55rem; transform: rotate(45deg); background: var(--sun); flex: none; }
 .outcome { font-family: var(--font-ui); }
 .choice { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 .choice .btn { display: inline-flex; align-items: center; gap: 0.5rem; }

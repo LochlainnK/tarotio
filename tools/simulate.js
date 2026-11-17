@@ -5,28 +5,32 @@
  * CONFIG, TIERS, the deal rule, the omen generator or a card's auspice:
  *     npm run simulate            (or: node tools/simulate.js <days>)
  *
+ * Each day's puzzle is dealt once and played by every kind of player, each with their
+ * own randomly cast cards and a sign that changes day to day (neither changes the fortune).
+ *
  * Players are modelled on the real omens. Each omen is applied correctly with
  * probability p, in order, stopping at the first one the player cannot use. The player
- * then turns cards among the places still possible. Turning the brightest card keeps it
- * at once; any other card is passed if a chip is in hand.
+ * then turns cards among the places still possible. Turning the Full Moon keeps it at
+ * once; any other card is passed if a chip is in hand.
  *
  * Targets (see IMPLEMENTATION_GUIDE.md, "Balance"):
  *   - perfect readers (p = 1) get a Full Moon every day
- *   - Full Moon rises steeply with skill: blind about 5%, p .5 about 20%, p .85 about 65%, p .95 about 85%
- *   - blind players still reach Gibbous or Full sometimes (10-20%): luck is real, but small
- *   - no element is luckier than another (spread under 5 points)
+ *   - Full Moon rises steeply with skill: blind 0.5-4%, p .5 about 6-15%, p .85 about 45-70%, p .95 at least 75%
+ *   - blind players still reach Gibbous or Full sometimes (3-12%): luck is real, but small
  */
 const E = require('../js/engine.js');
 const { SIGNS } = require('../js/cards.js');
 
-const DAYS = Number(process.argv[2]) || 300;
+const DAYS = Number(process.argv[2]) || 1000;
 const C = E.CONFIG;
 const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
 const ALL_PLACES = Array.from({ length: C.HAND_SIZE }, (_, i) => i);
 
-function playGame(seedKey, sign, p, rng) {
-  const hands = E.dealHands(seedKey, sign);
-  const puzzles = E.omensFor({ seedKey, sign }, hands);
+function playGame(day, puzzle, p, rng) {
+  const seedKey = day.seedKey, sign = SIGNS[Math.floor(rng() * SIGNS.length)].id;
+  const cardSeed = 'sim|' + Math.floor(rng() * 1e9);
+  const hands = E.castCards(puzzle, cardSeed);
+  const puzzles = E.omensFor({ seedKey }, puzzle);
   let chips = 0;
   const rounds = hands.map((hand, i) => {
     const pz = puzzles[i], top = pz.top;
@@ -47,7 +51,7 @@ function playGame(seedKey, sign, p, rng) {
     if (turned[0] === top && i < C.ROUNDS - 1) chips += C.CHIPS_PER_READ;
     return { turned, pick: turned[turned.length - 1], forced };
   });
-  return E.summarize({ mode: 'practice', date: C.EPOCH, sign, seedKey, rounds }, hands);
+  return E.summarize({ mode: 'practice', date: C.EPOCH, sign, seedKey, cardSeed, rounds }, hands);
 }
 
 const PLAYERS = [
@@ -59,20 +63,23 @@ const PLAYERS = [
   ['Perfect reader (p 1)', 1],
 ];
 
-console.log(`Simulating ${DAYS} days x ${SIGNS.length} signs per player`);
+// Deal every day's puzzle once.
+const t0 = Date.now();
+const days = [];
+for (let d = 0; d < DAYS; d++) {
+  const seedKey = 'sim-' + d;
+  days.push({ seedKey, puzzle: E.dealHands(seedKey) });
+}
+console.log(`Dealt ${DAYS} daily puzzles in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 console.log(`Tiers: ${[2, 3, 4, 5].map(t => E.TIERS[t].moon + ' ' + E.TIERS[t].min + '+').join(', ')}\n`);
-console.log('Player'.padEnd(30), 'insight', ' total', '  New  Cres  Half  Gibb  Full', '  passes');
+console.log('Player'.padEnd(30), 'insight', ' moons', '  New  Cres  Half  Gibb  Full', '  passes');
 
-const bySign = {};
 for (const [name, p] of PLAYERS) {
   const rng = E.rngFrom('sim|' + name);
   const tiers = [0, 0, 0, 0, 0, 0], totals = [], insights = [], passes = [];
-  for (let d = 0; d < DAYS; d++) {
-    for (const s of SIGNS) {
-      const sum = playGame(`sim-${d}|${s.id}`, s.id, p, rng);
-      tiers[sum.score.tier]++; totals.push(sum.score.total); insights.push(sum.insight); passes.push(sum.passes);
-      if (p === 0.7) (bySign[s.element] = bySign[s.element] || []).push(sum.score.tier === 5 ? 1 : 0);
-    }
+  for (const day of days) {
+    const sum = playGame(day, day.puzzle, p, rng);
+    tiers[sum.score.tier]++; totals.push(sum.score.total); insights.push(sum.insight); passes.push(sum.passes);
   }
   const n = totals.length;
   const pct = t => ((tiers[t] / n) * 100).toFixed(1).padStart(5) + '%';
@@ -80,26 +87,18 @@ for (const [name, p] of PLAYERS) {
     [1, 2, 3, 4, 5].map(pct).join(''), mean(passes).toFixed(2).padStart(8));
 }
 
-// Is any sign luckier than another? Full Moon rate for a learner, grouped by element
-// (three signs each, so each figure rests on enough games to mean something).
-const els = Object.keys(bySign), rates = els.map(e => mean(bySign[e]) * 100);
-console.log('\nFull Moon rate by element (learner): ' + els.map((e, i) => e + ' ' + rates[i].toFixed(1) + '%').join('  '));
-console.log('Spread between the luckiest and unluckiest element: ' + (Math.max(...rates) - Math.min(...rates)).toFixed(1) + ' points');
-
-// The deck itself.
-const spread = [], perfect = [];
-const omenCount = [0, 0, 0];
-let decks = 0;
-for (let d = 0; d < DAYS; d++) for (const s of SIGNS) {
-  const g = { seedKey: `sim-${d}|${s.id}`, sign: s.id };
-  const hands = E.dealHands(g.seedKey, g.sign);
-  const o = E.deckOdds(hands, s.id);
+// The puzzles themselves.
+const spread = [], omenCount = [0, 0, 0], castable = [];
+for (const day of days) {
+  const o = E.deckOdds(day.puzzle);
   spread.push(o.tierCounts.map(c => c / o.count));
-  perfect.push(E.perfectReading(hands, s.id).total);
-  E.omensFor(g, hands).forEach((pz, i) => { omenCount[i] += pz.omens.length; });
-  decks++;
+  E.omensFor({ seedKey: day.seedKey }, day.puzzle).forEach((pz, i) => { omenCount[i] += pz.omens.length; });
+  // how varied are the cards behind the Full Moons? count distinct cards over ten castings
+  const tops = day.puzzle.map(E.topIndex), seen = new Set();
+  for (let k = 0; k < 10; k++) E.castCards(day.puzzle, day.seedKey + '|' + k).forEach((h, i) => seen.add(i + ':' + h[tops[i]].id));
+  castable.push(seen.size / 3);
 }
-console.log('\nPerfect reading: always a Full Moon, ' + Math.min(...perfect) + ' to ' + Math.max(...perfect) + ' moons, average ' + mean(perfect).toFixed(1));
-console.log('Share of the ' + (C.HAND_SIZE ** 3).toLocaleString('en') + ' blind readings in each tier, averaged over all decks:');
+console.log('\nShare of the ' + (C.HAND_SIZE ** 3).toLocaleString('en') + ' blind readings in each tier, averaged over all puzzles:');
 console.log([1, 2, 3, 4, 5].map(t => `${E.TIERS[t].moon} ${(mean(spread.map(x => x[t])) * 100).toFixed(1)}%`).join(' | '));
-console.log('Average omens per hand: Past ' + (omenCount[0] / decks).toFixed(2) + ', Present ' + (omenCount[1] / decks).toFixed(2) + ', Future ' + (omenCount[2] / decks).toFixed(2));
+console.log('Average omens per hand: Past ' + (omenCount[0] / DAYS).toFixed(2) + ', Present ' + (omenCount[1] / DAYS).toFixed(2) + ', Future ' + (omenCount[2] / DAYS).toFixed(2));
+console.log('Different cards behind a Full Moon across ten players: ' + mean(castable).toFixed(1) + ' on average');
