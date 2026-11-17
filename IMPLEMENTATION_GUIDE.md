@@ -515,6 +515,10 @@ Then update the table above.
 - Practice hands that do not affect stats.
 - Day and night themes, an inline favicon.
 - QA shortcut: add `?date=YYYY-MM-DD` to the address to play another day's deck.
+- Testing tool: a **Reset today** button in the footer, shown while `TEST_TOOLS` is `true`
+  in `js/app.js`. Two taps (the page cannot show a confirmation dialog) clear today's
+  daily reading and today's stats entry, keep the sign, and return to the start, so the
+  same deck can be played again. It must be off at launch: see Task 1.
 
 ---
 
@@ -527,8 +531,11 @@ Do one task at a time. After each, run `npm test`, play one full game by hand, a
 1. In `js/engine.js`, set `CONFIG.EPOCH` to the real launch date (`YYYY-MM-DD`). That date is Day 1.
 2. Update the `days` helper and the three dates in the "day numbers" test in
    `tests/engine.test.js` to match.
+3. In `js/app.js`, set `TEST_TOOLS = false`. This hides the **Reset today** button.
+   Leaving it on would let players replay the daily until they like their fortune.
 
-Done when: `npm test` passes and the masthead reads "Day 1" on launch day.
+Done when: `npm test` passes, the masthead reads "Day 1" on launch day, and the footer
+shows no Testing strip.
 
 ### Task 2. Host it
 
@@ -649,6 +656,7 @@ Run through this list on a phone and a desktop, in day and night themes:
 - [ ] A single tap on a card only picks it up. It takes a second tap to turn it.
 - [ ] A passed card stays passed after a refresh.
 - [ ] After finishing, the page shows the reading and offers no second daily game.
+- [ ] `TEST_TOOLS` is `false` and there is no Reset today button anywhere on the page.
 - [ ] Changing the device date forward one day offers a new deck and keeps the streak.
 - [ ] The share text contains no card names.
 - [ ] No horizontal scrolling at 360 px wide, in every phase.
@@ -703,7 +711,8 @@ same in every language.
 - Do not make a card turn on a single tap.
 - Do not add a timer. Time pressure is not part of this game.
 - Do not add hints that give the answer. Lighting the cards an omen speaks of is the limit.
-- Do not let a player replay the daily to get a better fortune. Practice hands exist for that.
+- Do not let a player replay the daily to get a better fortune. Practice hands exist for
+  that. The Reset today button is for testing only and must be off at launch.
 - Do not put a face-down card's face, name, orientation or brightness in the page, in
   hidden markup, `title` attributes or `aria-label`s. Suit only.
 - Do not sort the moon board in any way that depends on card position.

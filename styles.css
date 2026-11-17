@@ -962,7 +962,22 @@ b { font-weight: 700; }
 }
 
 .foot { padding-top: 1.25rem; border-top: 1px dashed var(--rail); font-size: var(--t-sm); color: var(--chalk-dim); }
+.foot { display: grid; gap: 0.9rem; }
 .foot p { max-width: 44em; }
+/* testing tools: plainly marked as not part of the game */
+.test-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1.5px dashed var(--rail);
+  border-radius: 12px;
+  font-family: var(--font-ui);
+}
+.test-k { font-size: var(--t-xs); font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent-text); }
+.test-note { font-size: var(--t-xs); color: var(--chalk-dim); flex: 1 1 14rem; }
+.nav-btn.is-armed { background: var(--sun); border-color: var(--sun); color: var(--on-sun); font-weight: 700; }
 .noscript { padding: 1rem; text-align: center; }
 
 /* --------------------------------------------------------------- wide screens */

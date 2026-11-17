@@ -23,6 +23,9 @@
   var GAME_VERSION = 4;
   // Set this to the public address after launch so shared results link back to the game.
   var SHARE_URL = '';
+  // Testing tools: a Reset today button in the footer. Set to false before launch
+  // (IMPLEMENTATION_GUIDE.md, Task 1), or players could replay the daily for a better fortune.
+  var TEST_TOOLS = true;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -335,6 +338,35 @@
     ui.chips = game.chips;
     showPlay(false);
   }
+  // Testing only: forget today's daily reading and its stats entry, so the same deck can be played again.
+  // Asks for a second tap, because the page cannot show a confirmation dialog.
+  var resetTimer = null;
+  function disarmReset() {
+    window.clearTimeout(resetTimer);
+    resetTimer = null;
+    var btn = $('btn-reset');
+    btn.textContent = 'Reset today';
+    btn.classList.remove('is-armed');
+  }
+  function onReset() {
+    var btn = $('btn-reset');
+    if (!resetTimer) {
+      btn.textContent = 'Tap again to reset';
+      btn.classList.add('is-armed');
+      resetTimer = window.setTimeout(disarmReset, 4000);
+      return;
+    }
+    disarmReset();
+    var had = !!todaysDaily() || store.history.some(function (h) { return h.date === today; });
+    store.daily = null;
+    store.history = store.history.filter(function (h) { return h.date !== today; });
+    saveStore();
+    Array.prototype.forEach.call(document.querySelectorAll('dialog[open]'), closeDialog);
+    showIntro();
+    toTop();
+    toast(had ? 'Today is reset. Deal again to replay it.' : 'Nothing to reset yet. Today\u2019s deck is ready.');
+  }
+
   function showIntro() {
     game = null;
     renderSigns();
@@ -1111,6 +1143,10 @@
 
   function boot() {
     wire();
+    if (TEST_TOOLS) {
+      $('test-tools').hidden = false;
+      $('btn-reset').addEventListener('click', onReset);
+    }
     renderLegend();
     renderSigns();
     var d = todaysDaily();

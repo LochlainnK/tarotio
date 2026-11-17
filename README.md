@@ -74,7 +74,13 @@ npm run bundle
   different skill, and whether any sign is luckier than another.
 - `npm run bundle` writes `dist/tarotio.html`, the whole game in one file.
 
-Add `?date=YYYY-MM-DD` to the address to play another day's deck while testing.
+While testing:
+
+- **Reset today**, in the footer, clears today's reading and its stats entry so you can
+  play today's deck again. Tap it twice. Turn it off before launch by setting
+  `TEST_TOOLS = false` in `js/app.js`.
+- Add `?date=YYYY-MM-DD` to the address to play another day's deck.
+- **Try a practice hand** deals a fresh random deck that never touches your stats.
 
 ## Taking it live
 
