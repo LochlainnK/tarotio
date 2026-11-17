@@ -8,10 +8,10 @@ exactly one card, the brightest. Work out where it hides, turn it over, and keep
 three cards you keep are your Past, Present and Future, read together as your fortune for
 the day.
 
-Skill and luck are scored separately. **Insight** is how well you read the omens.
-**Fortune** is what the cards gave you. The result also shows the best the day's deck
-could have given and how often turning cards blind would have done as well, so you can
-see how much of the day was your reading and how much was the deal.
+Skill decides the fortune. Every deck is dealt so that its three brightest cards make its
+best reading, and that reading is a Full Moon: read all three hands true and the Full Moon
+is yours, every day. Luck only decides the hands you leave to chance, and the result says
+plainly how often turning blind would have done as well.
 
 ## Play it
 
@@ -32,8 +32,11 @@ Then open `http://localhost:8080`.
    "The Gibbous Moon sits at one end of the row". Every omen is true, and together they
    leave one card. The Past is plain; the Future takes some untangling.
 2. **Turn a card.** Tap a card to pick it up, tap again to turn it over.
-3. **Keep or pass.** Keep it, or pay a chip to burn it and turn another. Every hand comes
-   with one chip. With no chips left, the card you turn is the card you keep.
+3. **Found it, or not.** The brightest card is yours the moment you turn it. Turn another
+   card and, if you hold a chip, you can keep it or spend the chip to burn it and turn
+   again. With no chips, the card you turn is the card you keep.
+4. **Win chips.** Turn the brightest card on your first try and you win a chip for the
+   hands ahead. Chips are never free: second chances are earned.
 
 What you reason from:
 

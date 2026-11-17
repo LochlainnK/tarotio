@@ -29,15 +29,17 @@
     ROUNDS: 3,
     HAND_SIZE: 5,
     REVERSED_CHANCE: 0.3,       // chance each dealt card lands reversed
-    CHIPS_PER_HAND: 1,          // every hand comes with one chip, so everyone gets a keep-or-pass decision
+    CHIPS_PER_READ: 1,          // reading a hand true (its brightest card turned first) wins a chip for the hands ahead
     PASS_PRICE: 1,              // chips paid to pass on a turned card
+    MAX_DEAL_ATTEMPTS: 5000,    // reshuffles allowed while looking for a fair deck
     INSIGHT_FIRST_TURN: 2,      // the first card turned in a hand is its brightest: the omens were read true
     INSIGHT_FOUND_LATER: 1,     // the brightest card was found after passing
     BRIGHT_FROM: 4,             // a card is "bright" at Gibbous Moon or better
     BONUS: { attuned: 1, signCard: 2, trine: 2, majors: 2, pair: 1, triple: 3, run: 2 },
-    // What a card in the player's own element adds. Swords is the hardest suit in the deck,
-    // so it gives its own (Air) signs two steps; without this, Air signs come out measurably less lucky.
-    ATTUNED_BY_SUIT: { wands: 1, cups: 1, swords: 2, pentacles: 1 }
+    // What a card in the player's own element adds, per suit. All equal: the deal rule makes a
+    // perfect reading a Full Moon for every sign, and npm run simulate confirms no element is
+    // luckier for anyone else. Change one only if the simulator shows an element falling behind.
+    ATTUNED_BY_SUIT: { wands: 1, cups: 1, swords: 1, pentacles: 1 }
   };
   CONFIG.MAX_INSIGHT = CONFIG.ROUNDS * CONFIG.INSIGHT_FIRST_TURN;
 
@@ -294,21 +296,48 @@
     return a.indexOf(Math.max.apply(null, a));
   }
 
-  // Shuffle the 78-card deck from the seed and deal three hands of five.
-  // No card repeats across the three hands. Unfair deals are re-shuffled, still deterministically.
-  function dealHands(seedKey) {
+  // Shuffle the 78-card deck from the seed and deal three hands of five. No card repeats.
+  //
+  // A deck is only used if:
+  //   1. every hand is fair: one brightest card, Gibbous or better, and a dim card to avoid;
+  //   2. the three brightest cards together make this deck's best reading for this sign;
+  //   3. that reading is a Full Moon;
+  //   4. every hand carries a real puzzle.
+  // Rules 2 and 3 are what make Tarotio a game of skill: read all three hands true and you
+  // always draw the best reading the deck holds, and it is always a Full Moon. Luck only
+  // decides the hands the omens do not solve.
+  //
+  // The sign is part of the rule because bonuses depend on it. Unfair deals are reshuffled
+  // with the next attempt number, so the result is still the same on every device.
+  function dealHands(seedKey, signId) {
+    if (!SIGN_BY_ID[signId]) throw new Error('dealHands needs a sign: ' + signId);
     var ids = CARDS.map(function (c) { return c.id; });
-    var hands = null;
-    for (var attempt = 0; attempt < 400; attempt++) {
+    var full = TIERS[5].min, fallback = null;
+    for (var attempt = 0; attempt < CONFIG.MAX_DEAL_ATTEMPTS; attempt++) {
       var rng = rngFrom('deal|' + seedKey + '|' + attempt);
       var drawn = shuffle(ids, rng).slice(0, CONFIG.ROUNDS * CONFIG.HAND_SIZE).map(function (id) {
         return { id: id, rev: rng() < CONFIG.REVERSED_CHANCE };
       });
-      hands = [];
+      var hands = [];
       for (var r = 0; r < CONFIG.ROUNDS; r++) hands.push(drawn.slice(r * CONFIG.HAND_SIZE, (r + 1) * CONFIG.HAND_SIZE));
-      if (hands.every(handIsFair) && hands.every(hasPuzzle)) break;
+      // cheapest checks first
+      if (!hands.every(handIsFair)) continue;
+      if (!fallback) fallback = hands;
+      var perfect = scoreSpread(hands.map(function (h) { return h[topIndex(h)]; }), signId).total;
+      if (perfect < full) continue;
+      if (deckOdds(hands, signId).best > perfect) continue;
+      if (!hands.every(hasPuzzle)) continue;
+      return hands;
     }
-    return hands;
+    // Not reached in practice (fair decks come up about one shuffle in thirty). Kept so a
+    // deal can never hang: the last fair deck seen is used instead.
+    return fallback || hands;
+  }
+
+  // The reading a perfect reader draws: the brightest card of each hand. The deal makes sure
+  // this is also the deck's best reading, and a Full Moon.
+  function perfectReading(hands, signId) {
+    return scoreSpread(hands.map(function (h) { return h[topIndex(h)]; }), signId);
   }
 
   /* ------------------------------ patterns ---------------------------- */
@@ -658,7 +687,7 @@
   // The omens for all three hands of a game: plain for the Past, knotty for the Future.
   // Everyone with the same sign on the same day gets the same omens.
   function omensFor(game, hands) {
-    hands = hands || dealHands(game.seedKey);
+    hands = hands || dealHands(game.seedKey, game.sign);
     return hands.map(function (hand, i) {
       return makeOmens(hand, Math.min(3, i + 1), rngFrom('omens|' + game.seedKey + '|' + i));
     });
@@ -668,6 +697,17 @@
   function handInsight(round, hand) {
     var at = round.turned.indexOf(topIndex(hand));
     return at === 0 ? CONFIG.INSIGHT_FIRST_TURN : at > 0 ? CONFIG.INSIGHT_FOUND_LATER : 0;
+  }
+
+  // Chips won by reading hands true: one for each hand whose brightest card was turned first,
+  // except the last hand, where there is nothing left to spend it on. Counts finished hands only.
+  function chipsWon(rounds, hands) {
+    var won = 0;
+    for (var i = 0; i < CONFIG.ROUNDS - 1; i++) {
+      var r = rounds[i];
+      if (r && r.pick !== null && r.pick !== undefined && r.turned[0] === topIndex(hands[i])) won += CONFIG.CHIPS_PER_READ;
+    }
+    return won;
   }
 
   // Chance that a player turning cards blind finds the brightest card first in at least k of the hands.
@@ -710,30 +750,31 @@
 
   // Plain statement of how much was the player and how much was the deck.
   // First key: insight band (how well the omens were read). Second key: fortune band.
+  // A perfect reading always gives a Full Moon, so the text can say plainly what decided the rest.
   var VERDICTS = {
     high: {
-      high: ['You read the omens true and the deck had bright cards to find. Skill found them, and luck put them there.',
-        'Clear sight and a generous deck. You found what there was to find, and today there was plenty.'],
-      mid: ['You read the omens well. The deck held an even hand today, and you took the best of it.',
-        'Good reading, fair cards. Your eye is why this landed where it did.'],
-      low: ['You read the omens well and the deck simply ran deep today. That is the shuffle, and no reflection on you.',
-        'Your reading was sharp. The deck had little light to give. Some days it keeps its own counsel.']
+      high: ['You read the omens true and the cards answered. This fortune is earned.',
+        'Clear sight, and the light was where you looked. The Full Moon is yours by reading, not by chance.'],
+      mid: ['You read most of the omens true. One hand kept its secret, and that is the distance between this and a Full Moon.',
+        'Sharp reading, with one hand left to chance. Chance was fair to you today.'],
+      low: ['You read most of it true, and the one hand that got away held the light. It is yours to find tomorrow.',
+        'Your reading was sharp where it landed. The hand that stayed tangled was the one that mattered most today.']
     },
     mid: {
-      high: ['Some omens read, some luck, and a generous deck. Fortune did part of the lifting today, and that is allowed.',
-        'You untangled part of it, and fortune filled in the rest.'],
-      mid: ['Some sight, some chance, a steady result. An honest day at the table.',
+      high: ['Part reading, part fortune. You found some of the light and the deck handed you the rest.',
+        'You untangled part of it, and luck filled in the rest. That is allowed.'],
+      mid: ['Some omens read, some chance. An honest day at the table.',
         'You and the deck met in the middle today.'],
-      low: ['You read part of the omens and the deck stayed quiet. Quiet decks happen to every reader.',
-        'Part reading, part chance, and a deep deck. Seeing some of it clearly is a skill too.']
+      low: ['You read part of the omens. The rest stayed tangled, and the cards were quiet with them.',
+        'Part reading, part chance, and chance was quiet. Each omen you untangle is light you keep.']
     },
     low: {
-      high: ['Today was luck, plain and simple. The omens kept their secrets and the deck handed you bright cards anyway. Fortune like this is given, never earned, so enjoy it.',
+      high: ['Today was luck, plain and simple. The omens kept their secrets and the deck lit up anyway. Fortune like this is given, never earned, so enjoy it.',
         'The omens got the better of you and the cards did not mind at all. This one is pure fortune, and it is yours.'],
-      mid: ['The omens stayed tangled and the deck met you kindly. Each one you work out buys a clearer look tomorrow.',
-        'Mostly by feel, and still a steady hand. The deck was on your side more than the omens were.'],
-      low: ['Knotty omens and a deep deck is the hard combination, and you finished the reading anyway. Every omen you saw solved today is one you will read faster next time.',
-        'The deck kept its bright cards hidden and the omens kept their meaning. That is one day. The shuffle is new tomorrow, and you know more than you did this morning.']
+      mid: ['Mostly by feel, and the deck met you halfway. Each omen you read true brings the Full Moon closer.',
+        'The omens stayed tangled and chance was kind enough. Tomorrow\u2019s deck has a Full Moon in it too.'],
+      low: ['Knotty omens on a quiet day. Every deck holds a Full Moon for the one who reads it, and tomorrow\u2019s is waiting.',
+        'The omens kept their meaning today. That is one day. The shuffle is new tomorrow, and you know more than you did this morning.']
     }
   };
   function band3(value, lowMax, highMin) { return value <= lowMax ? 'low' : value >= highMin ? 'high' : 'mid'; }
@@ -741,7 +782,7 @@
   // Build everything the result screen shows. `game` is the saved state from app.js:
   // { mode, date, sign, seedKey, rounds: [{ turned: [cardIndex, in the order turned], pick, forced }] }
   function summarize(game, hands) {
-    hands = hands || dealHands(game.seedKey);
+    hands = hands || dealHands(game.seedKey, game.sign);
     var sign = SIGN_BY_ID[game.sign];
     var picks = game.rounds.map(function (r, i) { return hands[i][r.pick]; });
     var firsts = game.rounds.map(function (r, i) { return hands[i][r.turned[0]]; });
@@ -749,8 +790,8 @@
     var points = game.rounds.map(function (r, i) { return handInsight(r, hands[i]); });
     var insight = points.reduce(function (s, x) { return s + x; }, 0);
     var passes = game.rounds.reduce(function (s, r) { return s + r.turned.length - 1; }, 0);
-    var chipsIn = CONFIG.ROUNDS * CONFIG.CHIPS_PER_HAND;
     var puzzles = omensFor(game, hands);
+    var chipsIn = chipsWon(game.rounds, hands);
     var score = scoreSpread(picks, game.sign);
     // What the reading would have been with no passes at all: the first card turned in each hand.
     // The gap between this and the real score is what the player's chips did.
@@ -820,9 +861,12 @@
       : 'None of your first turns was the brightest card today. The omens were knotty, and each one you untangle makes the next easier.';
     // What the deck could have given at best: the luck of the deal, which no reading can change.
     var ceiling = { total: odds.best, tier: tierFor(odds.best) };
-    var ceilingLine = score.total >= odds.best
-      ? 'This deck could give ' + odds.best + ' moons at most, and you reached it. A brighter fortune was never on the table today.'
-      : 'This deck could give ' + odds.best + ' moons at most, a ' + TIERS[ceiling.tier].moon + ' reading. That ceiling is the luck of the deal.';
+    var perfectRead = firstFinds === CONFIG.ROUNDS;
+    var ceilingLine = perfectRead
+      ? 'You read all three hands true, so you drew the best reading this deck held: ' + odds.best + ' moons. That is skill, and it will work on any day\u2019s deck.'
+      : score.total >= odds.best
+      ? 'You reached this deck\u2019s best reading, ' + odds.best + ' moons, even with a hand left to chance. Fortune helped.'
+      : 'This deck\u2019s best reading was ' + odds.best + ' moons: its three brightest cards, the ones the omens point to. Every deck is dealt so that reading all three hands true gives a Full Moon.';
 
     return {
       mode: game.mode, date: game.date, dayNo: dayNumber(game.date), sign: sign,
@@ -866,7 +910,7 @@
     face: face, auspice: auspice, cardLabel: cardLabel, isAttuned: isAttuned, isBright: isBright,
     aura: aura, handBoard: handBoard, keepPreview: keepPreview, attunedBonus: attunedBonus,
     roman: roman, kwPhrase: kwPhrase, cap: cap,
-    dealHands: dealHands, handIsFair: handIsFair, topIndex: topIndex,
+    dealHands: dealHands, handIsFair: handIsFair, topIndex: topIndex, perfectReading: perfectReading, chipsWon: chipsWon,
     detectPatterns: detectPatterns, scoreSpread: scoreSpread, tierFor: tierFor,
     deckOdds: deckOdds, standing: standing,
     omensFor: omensFor, makeOmens: makeOmens, omenPool: omenPool, omenCandidates: omenCandidates, arrangements: arrangements,

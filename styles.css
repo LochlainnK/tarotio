@@ -796,6 +796,7 @@ b { font-weight: 700; }
 .facts { display: flex; flex-wrap: wrap; gap: 0.4rem; font-family: var(--font-ui); font-size: var(--t-sm); }
 .facts li { padding: 0.25rem 0.7rem; border: 1.5px solid var(--rail); border-radius: 999px; }
 .facts b { font-variant-numeric: tabular-nums; }
+.facts li.is-perfect { background: var(--sun); border-color: var(--sun); color: var(--on-sun); }
 .spark { position: absolute; left: 50%; top: 50%; width: 0.9rem; height: 0.9rem; margin: -0.45rem 0 0 -0.45rem; color: var(--sun); pointer-events: none; opacity: 0; }
 .spark svg { width: 100%; height: 100%; }
 

@@ -25,9 +25,11 @@ The game in one hand:
    "The brightest card is a Cups card" or "The Gibbous Moon sits at one end of the row".
    Taken together they leave exactly one place the brightest card can be.
 2. **Turn a card.** The player taps a card to pick it up and taps again to turn it over.
-3. **Keep or pass.** Keep it, or pay a chip to pass. A passed card is burned and cannot be
-   taken back. Every hand comes with one chip. With no chips left, the card turned is the
-   card kept.
+3. **Found it, or not.** Turning the brightest card keeps it at once. Turning any other
+   card, a player holding a chip can keep it or pay the chip to pass and turn again. A
+   passed card is burned and cannot be taken back. With no chip, the card turned is kept.
+4. **Win chips.** Turning a hand's brightest card on the first try wins a chip for the
+   hands ahead. Chips are never given away free: second chances are earned by skill.
 
 What the player can see, and reasons from:
 
@@ -36,8 +38,11 @@ What the player can see, and reasons from:
 - **Suit marks.** The back of each card shows its suit (or a star for Major Arcana).
 - **Position.** The cards sit in a row of five.
 
-The omens tie those three together. Working them out is the skill. The chip is the
-gambler's way through for anyone who would rather not, or who is not sure.
+The omens tie those three together. Working them out is the skill.
+
+**Skill decides the fortune.** Every deck is dealt so that its three brightest cards make
+its best reading, and that reading is a Full Moon. Read all three hands true and the Full
+Moon is yours, every day. Luck only decides the hands a player leaves to chance.
 
 The result screen always shows two separate things:
 
@@ -45,10 +50,10 @@ The result screen always shows two separate things:
   card turned was the brightest, one where it was found after passing.
 - **Fortune** (New Moon to Full Moon): how bright the three kept cards are.
 
-It also shows **the best this deck could have given** (the luck of the deal, which no
-reading can change) and **how often turning blind would have done as well**. A player who
-read nothing and still drew a Full Moon can see it was fortune. A player who read every
-hand and got a Gibbous Moon can see the deck simply had no more to give.
+It also shows **the deck's best reading** (always the three brightest cards, always a Full
+Moon) and **how often turning blind would have done as well**. A player who read nothing
+and still drew a Full Moon can see it was fortune. A player who read every hand can see the
+Full Moon was earned.
 
 **Current state:** everything above works today, fully in the browser, with no server and
 no build step. Open `index.html` and play. Your job is to launch it, not to redesign it.
@@ -65,8 +70,10 @@ These are the product. Every change you make is checked against them.
    breaks them.
 2. **Omens only speak of what the player can see or work out:** positions, suit marks and
    the moons on the board. Never a card's name, number or orientation.
-3. **Nobody is locked out by the puzzle.** Every hand comes with a chip, so a player who
-   does not solve it still has a real keep-or-pass decision.
+3. **Skill decides the fortune; luck fills the gaps.** The deal guarantees that reading all
+   three hands true gives the deck's best reading and a Full Moon (section 4.2). Never
+   loosen that rule. Chips are only won by reading a hand true; never hand them out free,
+   because a free chip is a free re-roll and puts luck back in charge.
 4. **Never put the player down.** There is no losing, no "wrong", no "bad luck", no
    "unlucky", no "fail", no "mistake". A low result is a "deep" or "gentle" day. An unsolved
    hand is "knotty omens". A pass that did not pay is "the price of nerve".
@@ -75,11 +82,12 @@ These are the product. Every change you make is checked against them.
    score. The result must always show: the Insight meter, the Fortune meter, the deck's
    best, the odds of doing as well blind, the path of cards turned in each hand, and how
    the omens fitted.
-6. **Luck must stay real in both directions.** A player who ignores the omens must
-   sometimes reach Full Moon. A player who reads every hand must sometimes land lower,
-   because the deck had nothing brighter. Section 7 has the targets.
-7. **No sign may be luckier than another.** Check this in the simulator after any change
-   to bonuses or card brightness (section 7 explains why Air signs need a larger bonus).
+6. **Luck stays real but small.** A perfect reader always gets a Full Moon. A player who
+   ignores the omens must still reach a Full Moon now and then (about 4%), and the result
+   must say plainly when a fortune was luck. Section 7 has the targets.
+7. **No sign may be luckier than another.** The deal rule makes a perfect reading a Full
+   Moon for every sign. Check the simulator's element spread after any change to bonuses
+   or card brightness.
 8. **Stay rooted in real tarot.** Card meanings follow the Rider-Waite-Smith tradition.
    Sign-to-card links are the Golden Dawn attributions. Do not invent meanings, and do not
    add cards, suits or signs. Reversals, suit emphasis, repeated numbers and the
@@ -161,14 +169,25 @@ npm start
 1. Shuffle all 78 card ids with the seeded generator.
 2. Take the first 15. Each lands reversed with probability `REVERSED_CHANCE` (0.3).
 3. Split into three hands of five: Past, Present, Future.
-4. A deal is used only if every hand is fair (`handIsFair`) and carries a real puzzle
-   (`hasPuzzle`). A hand is fair if it has **exactly one brightest card**, that card is
-   brightness 4 or 5, and some card is brightness 1 or 2. A hand carries a real puzzle if
-   at least two omens are needed to pin its brightest card. Otherwise reshuffle with the
-   next attempt number (still deterministic) and try again.
+4. A deal is used only if all of these hold, checked cheapest first:
+   - every hand is fair (`handIsFair`): **exactly one brightest card**, of brightness 4
+     or 5, and some card of brightness 1 or 2;
+   - the three brightest cards together score at least the Full Moon threshold (16) for
+     this sign (`perfectReading`);
+   - no other combination of one card per hand scores higher (`deckOdds(...).best`);
+   - every hand carries a real puzzle (`hasPuzzle`): at least two omens are needed to pin
+     its brightest card.
+   Otherwise reshuffle with the next attempt number (still deterministic) and try again.
+   About one shuffle in thirty passes; a deal takes under 2 ms.
 
-The single brightest card matters: every omen says "the brightest card", so it has to
-mean one thing.
+`dealHands(seedKey, signId)` needs the sign, because bonuses depend on it. It throws
+without one.
+
+Why each rule matters:
+
+- One brightest card: every omen says "the brightest card", so it has to mean one thing.
+- Perfect reading = best reading = Full Moon: this is what makes the game skill-based.
+  Reading every hand true always gives the top fortune, on every day, for every sign.
 
 ### 4.3 The omens (`makeOmens`, `omensFor`)
 
@@ -211,23 +230,32 @@ it names). Tapping an omen lights those up. This is a reading aid, never the ans
 
 ### 4.4 Chips
 
-Every hand comes with 1 chip (`CHIPS_PER_HAND`). A pass costs 1 (`PASS_PRICE`). Unspent
-chips carry to the next hand. Chips have no value at the end.
+Players start with none. Turning a hand's brightest card **on the first try** wins 1 chip
+(`CHIPS_PER_READ`) for the hands ahead; the last hand wins none, as there is nothing left
+to spend it on. A pass costs 1 (`PASS_PRICE`). Unspent chips carry over. Chips have no
+value at the end.
+
+So a player who reads the Past and Present true reaches the Future, the hardest hand,
+with two chips in hand. Skill buys room. A player who guesses rarely has a chip at all.
+
+The chip count is not trusted from storage: on resume it is recomputed from the hands
+played (`chipsWon` less passes).
 
 ### 4.5 One hand (repeated three times)
 
 | Phase | What happens |
 |---|---|
-| `turn` | The omens are on screen. The player picks a card up (first tap) and turns it (second tap, or the Turn it over button). If they hold a chip and another card is still face down, go to `decide`. Otherwise the card is kept at once (`forced: true`) and the hand goes to `reveal`. |
-| `decide` | The turned card is shown with its brightness, keywords, what it adds to the spread, and how many face-down cards are brighter or dimmer. **Keep** goes to `reveal`. **Pass** costs a chip, burns the card, and returns to `turn`. |
+| `turn` | The omens are on screen. The player picks a card up (first tap) and turns it (second tap, or the Turn it over button). The brightest card is kept at once and the hand goes to `reveal`. Any other card: with a chip in hand and another card face down, go to `decide`; otherwise it is kept at once (`forced: true`). |
+| `decide` | Only reached on a card that is not the brightest. The panel says so ("the brightest is still face down"), shows what the card adds to the spread and how many face-down cards are brighter or dimmer, and warns if it is the last chip with hands to come. **Keep** goes to `reveal`. **Pass** costs a chip, burns the card, and returns to `turn`. |
 | `reveal` | All five cards turn face up, the kept card flies to its place in the spread, and each omen shows what it narrowed the search to. |
 
 The player can also **rule a card out** by tapping the label under it. That is their own
 pencil mark (`marks`); it changes nothing in the rules.
 
-How a card came to be kept (`howKept`): `first` (kept on the first turn, by choice),
-`fate` (kept on the first turn because there was no chip), `dug` (found after a pass and
-kept by choice), `last` (kept after a pass when the chips or cards ran out).
+How a card came to be kept (`howKept`): `first` (kept on the first turn, including the
+brightest card found at once), `fate` (kept on the first turn because there was no chip),
+`dug` (kept after a pass, by choice or because it was the brightest), `last` (kept after a
+pass when the chips or cards ran out).
 
 Keyboard: 1 to 5 pick up a card; the same key or Enter turns it. Shift with 1 to 5 rules
 a card out. K keeps, P passes.
@@ -252,7 +280,7 @@ The hardest cards get brighter when reversed. That is traditional.
 
 | Pattern | Card-table nickname | Bonus |
 |---|---|---|
-| A kept card is in the suit of your sign's element ("attuned") | | +1 per card (+2 per card for Air signs, see section 7) |
+| A kept card is in the suit of your sign's element ("attuned") | | +1 per card (`ATTUNED_BY_SUIT`) |
 | Your sign's own Major Arcana card is kept | the wild card | +2 |
 | All three cards share a suit ("Trine") | a flush | +2 |
 | All three are Major Arcana ("Fate's Hand") | three of a kind | +2 |
@@ -271,8 +299,8 @@ Queen 13, King 14.
 | 9 to 10 | 2 | Crescent Moon, Gentle |
 | 8 or less | 1 | New Moon, Deep |
 
-The brightest card is usually, but not always, the best card for the spread: a quieter
-card that completes a Trine can be worth more. That is deliberate depth for strong players.
+The deal guarantees the three brightest cards are the best reading, so a reader never has
+to choose between the brightest card and a pattern.
 
 ### 4.8 Insight (`handInsight`)
 
@@ -289,8 +317,8 @@ passes it to chase a pattern is not marked down.
   brightest card first in one hand in five. All three: once in 125 games. Two of three:
   about one game in ten. At least one: about every other game. The result states the
   figure for what the player did.
-- **The deck's ceiling.** The brightest reading the day's deck could give (`ceiling`).
-  This is the luck of the deal. A perfect reader is shown that they reached it.
+- **The deck's best.** Always the three brightest cards and always a Full Moon (`ceiling`).
+  A perfect reader is told it was skill. Anyone else is told where the omens pointed.
 - **The 125 blind readings** (`deckOdds`, `standing`). One card from each of three hands
   gives 125 readings; the chart shows how many fall in each tier and which the player hit.
 - **First turns alone** (`firstScore`, `lift`). What the first card turned in each hand
@@ -369,8 +397,8 @@ orientation are counted, and each reads differently for each of the 12 signs.
 ```js
 { v: 1,
   sign: 'leo',
-  daily: { v: 3, mode: 'daily', date: '2026-11-16', sign: 'leo', seedKey: '2026-11-16|leo',
-           round: 1, phase: 'decide', done: false, chips: 2,
+  daily: { v: 4, mode: 'daily', date: '2026-11-16', sign: 'leo', seedKey: '2026-11-16|leo',
+           round: 1, phase: 'decide', done: false, chips: 1,
            rounds: [
              { turned: [2], pick: 2, forced: false, marks: [3] },
              { turned: [0], pick: null, forced: false, marks: [] },
@@ -409,40 +437,48 @@ orientation are counted, and each reads differently for each of the 12 signs.
 
 ## 7. Balance
 
-Run `npm run simulate` after changing any of: a card's `a`, `REVERSED_CHANCE`,
-`CHIPS_PER_HAND`, any `BONUS` value, `ATTUNED_BY_SUIT`, a tier `min`, or `handIsFair`.
+Run `npm run simulate` after changing any of: a card's `a`, `REVERSED_CHANCE`, a chip
+rule, any `BONUS` value, `ATTUNED_BY_SUIT`, a tier `min`, the deal rule, or the omen
+generator.
 
-Skill is modelled as how often the player reads a hand's omens correctly. When they do,
-they turn the brightest card first and keep it. When they do not, they turn cards without
-knowing where anything is.
+Players are modelled on the real omens: each omen is applied correctly with probability
+p, in order, stopping at the first one they cannot use. They turn cards among the places
+still possible, and pass when they hold a chip and the card is not the brightest.
 
-Current output (400 days x 12 signs per player type):
+Current output (300 days x 12 signs per player type):
 
 | Player | Avg insight | New | Crescent | Half | Gibbous | Full |
 |---|---|---|---|---|---|---|
-| Ignores the omens, random taps | 1.8 | 7.5% | 17.1% | 44.7% | 24.3% | 6.5% |
-| Ignores the omens, plays the odds | 1.7 | 4.0% | 13.1% | 49.4% | 26.5% | 7.0% |
-| Reads 1 hand in 3 | 3.2 | 1.3% | 6.0% | 39.5% | 38.8% | 14.4% |
-| Reads 2 hands in 3 | 4.6 | 0.1% | 1.2% | 23.3% | 48.5% | 26.9% |
-| Reads every hand | 6.0 | 0.0% | 0.0% | 4.7% | 55.2% | 40.1% |
+| Blind: ignores the omens | 1.3 | 26.1% | 29.8% | 32.1% | 8.0% | 3.9% |
+| Uses half the omens (p .5) | 2.6 | 13.0% | 18.2% | 34.4% | 15.1% | 19.2% |
+| Learner (p .7) | 3.7 | 5.1% | 10.1% | 28.8% | 15.8% | 40.2% |
+| Regular (p .85) | 4.8 | 1.0% | 3.8% | 17.8% | 12.4% | 65.0% |
+| Sharp (p .95) | 5.6 | 0.1% | 0.3% | 6.6% | 5.4% | 87.6% |
+| Perfect reader (p 1) | 6.0 | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% |
 
-The deck's ceiling is a Full Moon on about 55% of days, a Gibbous Moon on 43% and a Half
-Moon on 2%. That spread is the luck even a perfect reader lives with.
+Full Moon rate by element for a learner: Fire 39.1%, Earth 40.0%, Air 39.3%, Water 42.4%.
 
 Targets to keep after any change:
 
-- "Ignores the omens, random taps" reaches Full Moon between 3% and 10% of the time.
-- "Reads every hand" reaches Full Moon between 30% and 45% of the time.
-- Each step up in reading raises the Full Moon share.
-- **Sign fairness:** the "spread between the luckiest and unluckiest sign" line stays
-  under 0.5 moons.
+- A perfect reader gets a Full Moon 100% of the time. (Guaranteed by the deal rule; the
+  tests check it too.)
+- Full Moon rises steeply with skill: blind 2-8%, p .5 about 15-25%, p .85 about 55-75%,
+  p .95 at least 80%.
+- Blind players reach Gibbous or Full 8-20% of the time: luck is real, but small.
+- **Element fairness:** the "spread between the luckiest and unluckiest element" stays
+  under 5 points.
 - Average omens per hand stays near 2, 3 and 3 for Past, Present and Future.
 
-**Why Air signs get +2.** Swords is the darkest suit in the deck (average brightness 2.6
-against about 3.4 for the others). Because suit marks are visible, players can favour
-cards in their own element. With a +1 bonus for every sign, Gemini, Libra and Aquarius
-came out measurably less lucky. `ATTUNED_BY_SUIT.swords = 2` closes that gap to within
-noise. Do not "simplify" it back to 1.
+**How this changed.** Before the deal rule, a deck's best reading was a Full Moon on only
+about 55% of days, so even a perfect reader got the top fortune only 41% of the time, and
+everyone got a free chip per hand to re-roll blind. Now the deal guarantees a perfect
+reading is the best and a Full Moon, and chips are won by reading true.
+
+**Why every element gets +1.** An earlier version gave Air signs +2 for Swords, the
+darkest suit, because players could chase their own suit. Under the deal rule that made
+Air slightly brighter on average; with +1 for everyone the elements are equal within
+noise. If a future change makes one element fall behind, adjust `ATTUNED_BY_SUIT` and
+re-run the simulator.
 
 If a change breaks a target, undo it or adjust tier thresholds until the targets hold.
 Then update the table above.
@@ -454,7 +490,10 @@ Then update the table above.
 - Sign picker, remembered between visits.
 - The omen puzzle: generator, three difficulty tiers, tap-to-light, rule-out pencil marks,
   and a hand-by-hand account of how the omens fitted.
-- Three hands with pick up, turn, keep or pass, full-hand reveal.
+- Three hands with pick up, turn, keep or pass, full-hand reveal. The brightest card is
+  kept the moment it is turned.
+- Chips won by reading a hand true, recomputed from play on resume.
+- The deal rule: a perfect reading is always the deck's best and a Full Moon.
 - The moon board, suit marks on card backs, running moon count, keep preview with
   bonuses and "what a third card could complete".
 - Two layouts: one column on phones (fits a 360 x 640 screen, main button within thumb
@@ -603,6 +642,8 @@ Run through this list on a phone and a desktop, in day and night themes:
 
 - [ ] `npm test` passes and `npm run simulate` meets every target in section 7, including sign fairness.
 - [ ] Solve all three hands by reasoning alone, on paper if needed. Each must have exactly one answer.
+- [ ] Reading all three hands true gives a Full Moon, and the result says it was skill.
+- [ ] A first hand turned wrong is kept at once (no chips yet). A hand read true shows a chip won.
 - [ ] A full daily game works with keyboard only.
 - [ ] Refreshing in every phase resumes in the same phase with the same cards, chips, omens and pencil marks.
 - [ ] A single tap on a card only picks it up. It takes a second tap to turn it.
@@ -654,8 +695,10 @@ same in every language.
   tests mean nothing.
 - Do not remove the unique-brightest rule from the deal. "The brightest card" must mean
   exactly one card.
-- Do not remove the chip. Without it a player who does not solve the hand has no decision
-  to make.
+- Do not hand out chips free (one per hand, a starting chip, a daily bonus). A free chip is
+  a free re-roll and puts luck back in charge. Chips are won by reading a hand true.
+- Do not loosen the deal rule. If a perfect reading can fall short of a Full Moon, the
+  game stops rewarding skill.
 - Do not let passed cards be taken back. The gamble is the point.
 - Do not make a card turn on a single tap.
 - Do not add a timer. Time pressure is not part of this game.

@@ -4,9 +4,9 @@
  *
  * Game state (saved to localStorage after every action so a refresh cannot undo anything):
  *   game = {
- *     v: 3, mode: 'daily' | 'practice', date, sign, seedKey,
+ *     v: 4, mode: 'daily' | 'practice', date, sign, seedKey,
  *     round: 0-2, phase: 'turn' | 'decide' | 'reveal', done,
- *     chips: chips in hand right now,
+ *     chips: chips in hand right now (won by reading hands true, less passes),
  *     rounds: [{ turned: [cardIndex, in the order turned], pick: cardIndex|null, forced: bool,
  *                marks: [cardIndex the player has ruled out] }]
  *   }
@@ -20,7 +20,7 @@
   var MOONS = D.MOONS, CFG = E.CONFIG;
 
   var STORE_KEY = 'tarotio.v1';
-  var GAME_VERSION = 3;
+  var GAME_VERSION = 4;
   // Set this to the public address after launch so shared results link back to the game.
   var SHARE_URL = '';
 
@@ -39,7 +39,7 @@
   /* ------------------------------ storage ----------------------------- */
 
   var PHASES = ['turn', 'decide', 'reveal'];
-  var MAX_CHIPS = CFG.ROUNDS * CFG.CHIPS_PER_HAND;
+  var MAX_CHIPS = (CFG.ROUNDS - 1) * CFG.CHIPS_PER_READ;
 
   // A saved game is only resumed if every field is in range. Anything else is dropped and the day starts clean.
   function validGame(g) {
@@ -287,8 +287,19 @@
   function canPass() { var r = cur(); return game.chips >= CFG.PASS_PRICE && r.turned.length < CFG.HAND_SIZE; }
 
   function hydrate() {
-    hands = E.dealHands(game.seedKey);
+    hands = E.dealHands(game.seedKey, game.sign);
     puzzles = E.omensFor(game, hands);
+  }
+  // Chips in hand follow from what has been played: won by reading hands true, spent on passes.
+  function chipsNow() {
+    var passes = 0;
+    game.rounds.forEach(function (r, i) {
+      if (i > game.round) return;
+      // every turned card was passed, except the one kept and the one face up awaiting a decision
+      var waiting = r.pick !== null || (i === game.round && game.phase === 'decide') ? 1 : 0;
+      passes += Math.max(0, r.turned.length - waiting);
+    });
+    return E.chipsWon(game.rounds, hands) - passes * CFG.PASS_PRICE;
   }
   function persist() {
     if (game.mode === 'daily') { store.daily = game; saveStore(); }
@@ -301,13 +312,13 @@
       : 'practice|' + Date.now().toString(36) + Math.floor(Math.random() * 1e9).toString(36);
     game = {
       v: GAME_VERSION, mode: mode, date: today, sign: store.sign, seedKey: seedKey,
-      round: 0, phase: 'turn', done: false, chips: CFG.CHIPS_PER_HAND,
+      round: 0, phase: 'turn', done: false, chips: 0,
       rounds: [0, 1, 2].map(function () { return { turned: [], pick: null, forced: false, marks: [] }; })
     };
     hydrate();
     persist();
     ui.tally = 0;
-    ui.chips = 0;            // so the first chip is seen arriving
+    ui.chips = 0;
     showPlay(true);
     frameTable();
   }
@@ -318,6 +329,7 @@
   function resume(saved) {
     game = saved;
     hydrate();
+    game.chips = Math.max(0, chipsNow());
     if (game.done) { showReading(false); return; }
     ui.tally = spreadTotal();
     ui.chips = game.chips;
@@ -337,31 +349,33 @@
     ui.selected = i;
     renderPlay(true);
   }
-  // Turn a card over. With a chip in hand the player then decides; without one, the card is theirs.
+  // Turn a card over.
+  //   The brightest card: found, and kept at once. Found on the first turn, it wins a chip.
+  //   Any other card, with a chip in hand: the player decides to keep it or pass.
+  //   Any other card, with no chip: it is theirs.
   function turn(i) {
     var r = cur();
     if (game.phase !== 'turn' || r.turned.indexOf(i) !== -1) return;
     r.turned.push(i);
     ui.selected = null;
-    if (canPass()) {
+    if (i === puzzle().top) endHand(false);
+    else if (canPass()) {
       game.phase = 'decide';
       persist();
       renderPlay(true);
-    } else {
-      r.pick = i;
-      r.forced = true;
-      game.phase = 'reveal';
-      persist();
-      renderPlay(true);
-      flyKept();
-    }
+    } else endHand(true);
   }
   function keep() {
-    var r = cur();
     if (game.phase !== 'decide') return;
+    endHand(false);
+  }
+  // The last card turned is kept, and the hand is over.
+  function endHand(forced) {
+    var r = cur();
     r.pick = r.turned[r.turned.length - 1];
-    r.forced = false;
+    r.forced = forced;
     game.phase = 'reveal';
+    game.chips = chipsNow();
     persist();
     renderPlay(true);
     flyKept();
@@ -396,7 +410,6 @@
     if (game.round < CFG.ROUNDS - 1) {
       game.round++;
       game.phase = 'turn';
-      game.chips += CFG.CHIPS_PER_HAND;
       persist();
       showPlay(true);
       frameTable();
@@ -538,7 +551,7 @@
     }).join('');
     var foot = over ? ''
       : game.round === 0 && !r.turned.length
-        ? '<p class="hint"><span>Every omen is true, and together they leave one card. Tap an omen to light the cards it speaks of. Tap a label under a card to rule it out.</span></p>'
+        ? '<p class="hint"><span>Every omen is true, and together they leave one card. Read all three hands true and the Full Moon is yours. Tap an omen to light the cards it speaks of; tap a label under a card to rule it out.</span></p>'
         : '';
     $('omens').innerHTML = eyebrowHTML() + '<h2 class="omens-h">Find the brightest card</h2><ol class="omen-list">' + items + '</ol>' + foot;
   }
@@ -559,16 +572,23 @@
     if (game.phase === 'turn') {
       var passed = r.turned.length;
       if (ui.selected === null) {
-        var line = passed
-          ? (game.chips > 0 ? 'You hold ' + plural(game.chips, 'chip', 'chips') + '. The moons above show what is still face down.'
-            : 'That was your last chip, so the next card you turn is the one you keep.')
-          : 'Tap a card to pick it up.' + (game.round === 0 ? ' ' + D.SUITS[sign.suit].name + ' are your suit, worth +' + E.attunedBonus(sign.suit) + ' each.' : '');
+        var line;
+        if (passed) {
+          line = game.chips > 0 ? 'You hold ' + plural(game.chips, 'chip', 'chips') + '. The brightest card is still face down.'
+            : 'That was your last chip, so the next card you turn is the one you keep.';
+        } else if (game.chips > 0) {
+          line = 'Tap a card to pick it up. You hold ' + plural(game.chips, 'chip', 'chips') + ': if your first turn is not the brightest card, you can spend one to try again.';
+        } else {
+          line = 'Tap a card to pick it up. With no chips, the card you turn is the card you keep.' +
+            (game.round < CFG.ROUNDS - 1 ? ' Read this hand true and you win a chip for the hands ahead.' : '') +
+            (game.round === 0 ? ' ' + D.SUITS[sign.suit].name + ' are your suit, worth +' + E.attunedBonus(sign.suit) + ' each.' : '');
+        }
         html = '<h2 class="prompt">' + (passed ? 'Turn another card.' : 'Which card will you turn?') + '</h2>' +
           '<p class="hint"><span>' + line + '</span></p>';
       } else {
         var sc = h[ui.selected], a = E.aura(sc);
         html = '<h2 class="prompt">Card ' + (ui.selected + 1) + ', ' + (a === 'major' ? 'Major Arcana' : D.SUITS[a].name) + '</h2>' +
-          '<p class="hint"><span>' + (game.chips > 0 ? 'Turn it and you can still keep it or pay a chip to pass.'
+          '<p class="hint"><span>' + (game.chips > 0 ? 'Turn it. If it is not the brightest card, you can keep it or spend a chip to try again.'
             : 'You have no chips, so if you turn it, it is yours.') +
           (r.marks.indexOf(ui.selected) !== -1 ? ' You had ruled this one out.' : '') + '</span></p>' +
           '<div class="choice"><button type="button" class="btn primary" data-act="turn">Turn it over</button></div>';
@@ -589,7 +609,8 @@
         (brighter ? plural(brighter, 'is', 'are') + ' brighter' : 'none is brighter') + ', ' +
         (dimmer ? plural(dimmer, 'is', 'are') + ' dimmer' : 'none is dimmer') +
         (same ? ' and ' + plural(same, 'is', 'are') + ' the same' : '') + '.';
-      html = '<h2 class="prompt">' + esc(E.cardLabel(c)) + '</h2>' +
+      html = '<p class="eyebrow">Not the brightest card<span class="eyebrow-sub">the brightest is still face down</span></p>' +
+        '<h2 class="prompt">' + esc(E.cardLabel(c)) + '</h2>' +
         '<p class="kw">' + moonLine(c) + '<span>' + esc(E.face(c).k) + '</span></p>' +
         (notes ? '<ul class="notes">' + notes + '</ul>' : '') +
         '<p class="outcome">Keep it and your spread comes to <b>' + plural(pre.total, 'moon', 'moons') + '</b>' +
@@ -598,16 +619,19 @@
         '<button type="button" class="btn primary" data-act="keep">Keep this card</button>' +
         '<button type="button" class="btn ghost" data-act="pass">Pass ' + chipsHTML(CFG.PASS_PRICE) + '<span class="pass-cost">1 chip</span></button>' +
         '</div>' +
-        '<p class="hint"><span>A pass burns this card for good. ' + risk + '</span></p>';
+        '<p class="hint"><span>A pass burns this card for good. ' + risk +
+        (game.round < CFG.ROUNDS - 1 && game.chips === 1 ? ' It is your only chip, and ' + plural(CFG.ROUNDS - 1 - game.round, 'hand is', 'hands are') + ' still to come.' : '') + '</span></p>';
     } else if (game.phase === 'reveal') {
       var pc = h[r.pick], top = puzzle().top, points = E.handInsight(r, h);
-      var read = r.turned[0] === top ? 'You read the omens true: your first turn was the brightest card in the hand.'
+      var more = game.round < CFG.ROUNDS - 1;
+      var read = r.turned[0] === top ? 'You read the omens true: your first turn was the brightest card in the hand.' +
+          (more ? ' The reader gives you a chip for the hands ahead.' : '')
         : r.pick === top ? 'You found the brightest card in the hand, ' + plural(r.turned.length - 1, 'pass', 'passes') + ' in.'
-        : 'The omens pointed to card ' + (top + 1) + ', ' + E.cardLabel(h[top]) + '.';
+        : 'The omens pointed to card ' + (top + 1) + ', ' + E.cardLabel(h[top]) + '. ' + howLine(r);
       html = '<p class="eyebrow">Your ' + p.name + ' card<span class="eyebrow-sub">' + p.blurb + '</span></p>' +
         '<h2 class="prompt">' + esc(E.cardLabel(pc)) + '</h2>' +
         '<p class="kw">' + moonLine(pc) + attunedTag(pc, game.sign) + '<span>' + esc(E.face(pc).k) + '</span></p>' +
-        '<p class="how">' + esc(read) + ' ' + howLine(r) + '</p>' +
+        '<p class="how">' + esc(read) + '</p>' +
         '<p class="insight-won"><span class="pips" aria-hidden="true">' + pipsHTML(points, CFG.INSIGHT_FIRST_TURN) + '</span>' +
         '<span>' + (points ? '+' + points + ' insight' : 'No insight from this hand') + '</span></p>' +
         '<div class="choice"><button type="button" class="btn primary" data-act="next">' + NEXT_LABEL[game.round] + '</button></div>';
@@ -740,7 +764,8 @@
 
     var facts = '<li><b>' + sum.insight + '/' + CFG.MAX_INSIGHT + '</b> insight</li>' +
       '<li>' + (st.isBest ? '<b>Brightest</b> reading in the deck' : 'Brighter than <b>' + st.pct + '%</b> of the deck') + '</li>' +
-      '<li><b>' + sum.firstFinds + ' of 3</b> omens read on the first turn</li>';
+      (sum.firstFinds === CFG.ROUNDS ? '<li class="is-perfect"><b>Perfect reading</b>: all three hands read true</li>'
+        : '<li><b>' + sum.firstFinds + ' of 3</b> hands read true</li>');
     if (sum.mode === 'daily') {
       var streak = streaks().current;
       if (streak > 1) facts += '<li><b>' + streak + '</b> day streak</li>';
