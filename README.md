@@ -2,9 +2,9 @@
 
 A daily tarot puzzle for your star sign.
 
-Each day a deck is shuffled for every sign and deals three hands of five cards, face
-down. The reader gives you omens: a few true clues per hand that, together, point to
-exactly one card, the brightest. Work out where it hides, turn it over, and keep it. The
+Each day a deck is shuffled for every sign and deals three hands of ten cards, face
+down in two rows of five. The reader gives you omens: a few true clues per hand that,
+together, point to exactly one card, the brightest. Work out where it hides, turn it over, and keep it. The
 three cards you keep are your Past, Present and Future, read together as your fortune for
 the day.
 
@@ -28,9 +28,10 @@ Then open `http://localhost:8080`.
 
 ## How a hand works
 
-1. **Read the omens.** Two to four clues such as "The brightest card is a Cups card" or
-   "The Gibbous Moon sits at one end of the row". Every omen is true, and together they
-   leave one card. The Past is plain; the Future takes some untangling.
+1. **Read the omens.** Two to five clues such as "The brightest card touches a Cups card"
+   or "The Half Moon shares a column with the brightest card". Every omen is true, and
+   together they leave one card. The Past is plain; the Future always needs clues chained
+   together.
 2. **Turn a card.** Tap a card to pick it up, tap again to turn it over.
 3. **Found it, or not.** The brightest card is yours the moment you turn it. Turn another
    card and, if you hold a chip, you can keep it or spend the chip to burn it and turn
@@ -40,9 +41,10 @@ Then open `http://localhost:8080`.
 
 What you reason from:
 
-- **The moon board** shows the five moons the hand holds, but never which card is which.
+- **The moon board** shows the ten moons the hand holds, but never which card is which.
 - **Suit marks** on the card backs show each card's suit, or a star for Major Arcana.
-- **Position**: the cards sit in a row of five.
+- **Position**: two rows of five. A card *touches* the cards beside it and the card
+  directly above or below it.
 
 Tap an omen to light the cards it speaks of. Tap the label under a card to rule it out.
 
@@ -51,8 +53,8 @@ cards in your sign's element, three of a suit, a repeated number, a run of numbe
 your sign's own card all add to the fortune. Card meanings follow the Rider-Waite-Smith
 tradition, including reversals.
 
-Keyboard: 1 to 5 pick up a card (the same key or Enter turns it), Shift with 1 to 5 rules
-a card out, K keeps, P passes.
+Keyboard: 1 to 5 pick up a card in the top row and 6 to 9 and 0 in the bottom row (the
+same key or Enter turns it), Shift with the key rules a card out, K keeps, P passes.
 
 ## Develop
 

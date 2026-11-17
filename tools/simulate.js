@@ -22,6 +22,7 @@ const { SIGNS } = require('../js/cards.js');
 const DAYS = Number(process.argv[2]) || 300;
 const C = E.CONFIG;
 const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
+const ALL_PLACES = Array.from({ length: C.HAND_SIZE }, (_, i) => i);
 
 function playGame(seedKey, sign, p, rng) {
   const hands = E.dealHands(seedKey, sign);
@@ -31,12 +32,12 @@ function playGame(seedKey, sign, p, rng) {
     const pz = puzzles[i], top = pz.top;
     let m = 0;
     while (m < pz.omens.length && rng() < p) m++;
-    const possible = m ? pz.steps[m - 1] : [0, 1, 2, 3, 4];
+    const possible = m ? pz.steps[m - 1] : ALL_PLACES;
     const turned = [];
     let forced = false;
     for (;;) {
       const left = possible.filter(x => !turned.includes(x));
-      const from = left.length ? left : [0, 1, 2, 3, 4].filter(x => !turned.includes(x));
+      const from = left.length ? left : ALL_PLACES.filter(x => !turned.includes(x));
       const idx = from[Math.floor(rng() * from.length)];
       turned.push(idx);
       if (idx === top) break;                                        // found: kept at once
@@ -99,6 +100,6 @@ for (let d = 0; d < DAYS; d++) for (const s of SIGNS) {
   decks++;
 }
 console.log('\nPerfect reading: always a Full Moon, ' + Math.min(...perfect) + ' to ' + Math.max(...perfect) + ' moons, average ' + mean(perfect).toFixed(1));
-console.log('Share of the 125 blind readings in each tier, averaged over all decks:');
+console.log('Share of the ' + (C.HAND_SIZE ** 3).toLocaleString('en') + ' blind readings in each tier, averaged over all decks:');
 console.log([1, 2, 3, 4, 5].map(t => `${E.TIERS[t].moon} ${(mean(spread.map(x => x[t])) * 100).toFixed(1)}%`).join(' | '));
 console.log('Average omens per hand: Past ' + (omenCount[0] / decks).toFixed(2) + ', Present ' + (omenCount[1] / decks).toFixed(2) + ', Future ' + (omenCount[2] / decks).toFixed(2));

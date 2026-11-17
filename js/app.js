@@ -4,12 +4,13 @@
  *
  * Game state (saved to localStorage after every action so a refresh cannot undo anything):
  *   game = {
- *     v: 4, mode: 'daily' | 'practice', date, sign, seedKey,
+ *     v: 5, mode: 'daily' | 'practice', date, sign, seedKey,
  *     round: 0-2, phase: 'turn' | 'decide' | 'reveal', done,
  *     chips: chips in hand right now (won by reading hands true, less passes),
  *     rounds: [{ turned: [cardIndex, in the order turned], pick: cardIndex|null, forced: bool,
  *                marks: [cardIndex the player has ruled out] }]
  *   }
+ * Card places are numbered row by row: 0-4 the top row, 5-9 the bottom row.
  * A turned card that is not the pick has been passed (burned). Marks are the player's own
  * pencil marks and never affect the rules.
  */
@@ -20,7 +21,7 @@
   var MOONS = D.MOONS, CFG = E.CONFIG;
 
   var STORE_KEY = 'tarotio.v1';
-  var GAME_VERSION = 4;
+  var GAME_VERSION = 5;
   // Set this to the public address after launch so shared results link back to the game.
   var SHARE_URL = '';
   // Testing tools: a Reset today button in the footer. Set to false before launch
@@ -172,6 +173,23 @@
     return '<span class="pcard is-show" style="--i:' + i + '" role="img" aria-label="' + esc(E.cardLabel(c)) + '"><span class="pc-flip">' +
       '<span class="pc-side pc-back">' + backHTML(c) + '</span><span class="pc-side pc-front">' + faceHTML(c) + '</span></span></span>';
   }
+  // A place in the grid, as a player would say it: "top row, card 3".
+  var ROW_WORD = ['Top row', 'Bottom row'];
+  function placeName(i) { return ROW_WORD[E.rowOf(i)] + ', card ' + (E.colOf(i) + 1); }
+  function placeShort(i) { return (E.rowOf(i) ? 'bottom' : 'top') + ' ' + (E.colOf(i) + 1); }
+  // A tiny 2 x 5 map of the hand with the given places lit. One lit place is the answer.
+  function gridMap(lit, label) {
+    var out = '<span class="map" role="img" aria-label="' + esc(label || ('Possible places: ' + lit.map(placeShort).join(', '))) + '">';
+    for (var i = 0; i < CFG.HAND_SIZE; i++) out += '<i class="' + (lit.indexOf(i) === -1 ? '' : lit.length === 1 ? 'is-only' : 'is-on') + '"></i>';
+    return out + '</span>';
+  }
+  function narrowingHTML(steps, omens) {
+    return '<ol class="fit">' + steps.map(function (left, k) {
+      return '<li><span class="fit-n">' + (k + 1) + '</span>' + gridMap(left) +
+        (omens ? '<span class="fit-t">' + esc(omens[k].text) + '</span>' : '') + '</li>';
+    }).join('') + '</ol>';
+  }
+
   function moonLine(c) {
     var a = E.auspice(c);
     return moonSVG(a) + '<span class="kw-name">' + MOONS[a].name + '</span><span class="scale">' + a + '/5</span>';
@@ -574,18 +592,13 @@
 
   // The puzzle: the reader's omens for this hand. Once the hand is over, each shows what it narrowed things to.
   function renderOmens() {
-    var pz = puzzle(), r = cur(), over = game.phase === 'reveal';
+    // On a phone this panel sits above the cards, so its height never changes during a hand.
+    var pz = puzzle();
     var items = pz.omens.map(function (o, k) {
-      var left = over ? '<span class="omen-left">' + (pz.steps[k].length === 1 ? 'leaves only card ' : 'leaves cards ') +
-        pz.steps[k].map(function (x) { return x + 1; }).join(', ') + '</span>' : '';
       return '<li><button type="button" class="omen' + (ui.omen === k ? ' is-on' : '') + '" data-omen="' + k + '" aria-pressed="' + (ui.omen === k) + '">' +
-        '<span class="omen-n">' + (k + 1) + '</span><span class="omen-t">' + esc(o.text) + left + '</span></button></li>';
+        '<span class="omen-n">' + (k + 1) + '</span><span class="omen-t">' + esc(o.text) + '</span></button></li>';
     }).join('');
-    var foot = over ? ''
-      : game.round === 0 && !r.turned.length
-        ? '<p class="hint"><span>Every omen is true, and together they leave one card. Read all three hands true and the Full Moon is yours. Tap an omen to light the cards it speaks of; tap a label under a card to rule it out.</span></p>'
-        : '';
-    $('omens').innerHTML = eyebrowHTML() + '<h2 class="omens-h">Find the brightest card</h2><ol class="omen-list">' + items + '</ol>' + foot;
+    $('omens').innerHTML = eyebrowHTML() + '<h2 class="omens-h">Find the brightest card</h2><ol class="omen-list">' + items + '</ol>';
   }
 
   function howLine(r) {
@@ -611,7 +624,8 @@
         } else if (game.chips > 0) {
           line = 'Tap a card to pick it up. You hold ' + plural(game.chips, 'chip', 'chips') + ': if your first turn is not the brightest card, you can spend one to try again.';
         } else {
-          line = 'Tap a card to pick it up. With no chips, the card you turn is the card you keep.' +
+          line = (game.round === 0 ? 'Every omen is true, and together they leave one card. Tap an omen to light the cards it speaks of; tap a label under a card to rule it out. ' : '') +
+            'Tap a card to pick it up. With no chips, the card you turn is the card you keep.' +
             (game.round < CFG.ROUNDS - 1 ? ' Read this hand true and you win a chip for the hands ahead.' : '') +
             (game.round === 0 ? ' ' + D.SUITS[sign.suit].name + ' are your suit, worth +' + E.attunedBonus(sign.suit) + ' each.' : '');
         }
@@ -619,7 +633,7 @@
           '<p class="hint"><span>' + line + '</span></p>';
       } else {
         var sc = h[ui.selected], a = E.aura(sc);
-        html = '<h2 class="prompt">Card ' + (ui.selected + 1) + ', ' + (a === 'major' ? 'Major Arcana' : D.SUITS[a].name) + '</h2>' +
+        html = '<h2 class="prompt">' + placeName(ui.selected) + ', ' + (a === 'major' ? 'Major Arcana' : D.SUITS[a].name) + '</h2>' +
           '<p class="hint"><span>' + (game.chips > 0 ? 'Turn it. If it is not the brightest card, you can keep it or spend a chip to try again.'
             : 'You have no chips, so if you turn it, it is yours.') +
           (r.marks.indexOf(ui.selected) !== -1 ? ' You had ruled this one out.' : '') + '</span></p>' +
@@ -659,13 +673,14 @@
       var read = r.turned[0] === top ? 'You read the omens true: your first turn was the brightest card in the hand.' +
           (more ? ' The reader gives you a chip for the hands ahead.' : '')
         : r.pick === top ? 'You found the brightest card in the hand, ' + plural(r.turned.length - 1, 'pass', 'passes') + ' in.'
-        : 'The omens pointed to card ' + (top + 1) + ', ' + E.cardLabel(h[top]) + '. ' + howLine(r);
+        : 'The omens pointed to the ' + placeName(top).toLowerCase() + ': ' + E.cardLabel(h[top]) + '. ' + howLine(r);
       html = '<p class="eyebrow">Your ' + p.name + ' card<span class="eyebrow-sub">' + p.blurb + '</span></p>' +
         '<h2 class="prompt">' + esc(E.cardLabel(pc)) + '</h2>' +
         '<p class="kw">' + moonLine(pc) + attunedTag(pc, game.sign) + '<span>' + esc(E.face(pc).k) + '</span></p>' +
         '<p class="how">' + esc(read) + '</p>' +
         '<p class="insight-won"><span class="pips" aria-hidden="true">' + pipsHTML(points, CFG.INSIGHT_FIRST_TURN) + '</span>' +
         '<span>' + (points ? '+' + points + ' insight' : 'No insight from this hand') + '</span></p>' +
+        '<div class="fit-wrap"><p class="mini-h">How the omens narrowed it down</p>' + narrowingHTML(puzzle().steps) + '</div>' +
         '<div class="choice"><button type="button" class="btn primary" data-act="next">' + NEXT_LABEL[game.round] + '</button></div>';
     }
     var el = $('reader');
@@ -708,14 +723,14 @@
       btn.disabled = !live;
       btn.setAttribute('aria-pressed', String(live && ui.selected === i));
       var yours = E.isAttuned(c, game.sign);
-      btn.setAttribute('aria-label', 'Card ' + (i + 1) + ': ' + (faceUp
+      btn.setAttribute('aria-label', placeName(i) + ': ' + (faceUp
         ? E.cardLabel(c) + ', ' + MOONS[E.auspice(c)].name + (burned ? ', passed' : '')
         : 'face down, ' + auraName(aura) + (yours ? ', your element' : '') + (ruled ? ', ruled out' : '')));
       // Under a face-down card: its suit, as a button that rules the card out. Under a face-up card: its moon.
       el.querySelector('[data-cap="' + i + '"]').innerHTML = faceUp
         ? moonSVG(E.auspice(c)) + (burned ? '<span class="cap-note">passed</span>' : attunedTag(c, game.sign))
         : '<button type="button" class="cap-btn" data-mark="' + i + '" aria-pressed="' + ruled + '" aria-label="' +
-          (ruled ? 'Bring back card ' : 'Rule out card ') + (i + 1) + '"><span class="cap-suit">' + auraName(aura) + '</span>' +
+          (ruled ? 'Bring back the card at ' : 'Rule out the card at ') + placeName(i).toLowerCase() + '"><span class="cap-suit">' + auraName(aura) + '</span>' +
           (yours ? '<span class="plus">+' + E.attunedBonus(aura) + '</span>' : '') + '</button>';
     });
   }
@@ -725,11 +740,14 @@
     if (game.phase !== 'reveal') { wrap.hidden = true; $('seen').innerHTML = ''; return; }
     wrap.hidden = false;
     var top = puzzle().top;
-    $('seen').innerHTML = h.map(function (c, i) {
-      var kept = r.pick === i, turned = r.turned.indexOf(i) !== -1;
+    var shown = r.turned.slice();
+    if (shown.indexOf(top) === -1) shown.push(top);
+    $('seen-h').textContent = 'Turned, and the brightest';
+    $('seen').innerHTML = shown.map(function (i) {
+      var c = h[i], kept = r.pick === i, turned = r.turned.indexOf(i) !== -1;
       var tag = (kept ? '<span class="tag is-kept">Kept</span>' : turned ? '<span class="tag">Passed</span>' : '') +
         (i === top ? '<span class="tag is-top">Brightest</span>' : '');
-      return '<li class="seen-item' + (kept ? ' is-kept' : '') + '"><span class="seen-n">' + (i + 1) + '</span>' +
+      return '<li class="seen-item' + (kept ? ' is-kept' : '') + '"><span class="seen-n">' + gridMap([i], placeName(i)) + '</span>' +
         '<span class="seen-main"><span class="seen-name">' + esc(E.cardLabel(c)) + '</span><span class="seen-kw">' + esc(E.face(c).k) + '</span></span>' +
         '<span class="seen-side">' + tag + attunedTag(c, game.sign) + moonSVG(E.auspice(c)) + '</span></li>';
     }).join('');
@@ -772,6 +790,11 @@
 
   /* ----------------------------- reading view ------------------------- */
 
+  function oddsWords(pct) {
+    if (pct >= 1) return 'about ' + Math.round(pct) + '% of the time';
+    if (pct > 0) return 'less than 1% of the time';
+    return 'almost never';
+  }
   function barWidth(n, max) { return n && max ? Math.max(1.5, (n / max) * 100).toFixed(1) : '0'; }
   function ordinal(n) { return n + (['th', 'st', 'nd', 'rd'][n] || 'th'); }
   function howTag(p) {
@@ -832,15 +855,12 @@
       var rankLine = p.wasBrightest ? 'the brightest of its five' : ordinal(p.rankInHand) + ' brightest of its five';
       var read = p.foundFirst ? 'Omens read true on the first turn'
         : p.found ? 'Brightest card found after passing'
-        : 'The omens pointed to card ' + (p.top + 1);
-      var steps = p.omens.map(function (o) {
-        return '<li>' + esc(o.text) + ' <span class="omen-left">' + (o.left.length === 1 ? 'leaves only card ' : 'leaves cards ') +
-          o.left.map(function (x) { return x + 1; }).join(', ') + '</span></li>';
-      }).join('');
+        : 'The omens pointed to the ' + placeName(p.top).toLowerCase();
+      var steps = narrowingHTML(p.omens.map(function (o) { return o.left; }), p.omens);
       return '<li><span class="r-pos">' + p.position + '</span><span class="r-body">' +
         '<span class="r-card">' + esc(p.label) + pathHTML(p) + '<span class="pips" aria-hidden="true">' + pipsHTML(p.insight, CFG.INSIGHT_FIRST_TURN) + '</span></span>' +
         '<span class="r-line">' + read + ' (+' + p.insight + ' insight). ' + howTag(p) + ', and ' + rankLine + '.</span>' +
-        '<details class="recap"><summary>How the omens fitted</summary><ol>' + steps + '</ol></details></span></li>';
+        '<details class="recap"><summary>How the omens fitted</summary>' + steps + '</details></span></li>';
     }).join('');
 
     var maxCount = Math.max.apply(null, sum.odds.tierCounts);
@@ -907,8 +927,8 @@
       '</div>' +
       '<ul class="rounds">' + rounds + '</ul>' +
       '<div class="odds"><h4 class="mini-h">The ' + sum.odds.count + ' readings this deck could have dealt</h4>' + odds + '</div>' +
-      '<p class="odds-note">Picking one card blind from each hand, this deck gives a ' + sum.tier.moon + ' reading or brighter about ' + st.blindChance +
-      '% of the time. Reading the omens changes those odds. It cannot change what was dealt.</p></section>' +
+      '<p class="odds-note">Picking one card blind from each hand, this deck gives a ' + sum.tier.moon + ' reading or brighter ' + oddsWords(st.blindChance) +
+      '. Reading the omens is how you beat those odds.</p></section>' +
 
       '<section class="after"><div class="after-row">' + after + '</div>' +
       '<textarea class="share-text" id="share-text" rows="8" readonly hidden aria-label="Your result, ready to copy"></textarea>' +
@@ -1067,17 +1087,19 @@
     if ($('dlg-sign').open) closeDialog($('dlg-sign'));
   }
 
-  // 1-5 pick up a card (the same key again turns it). Shift+1-5 rules a card out. K keeps, P passes.
+  // 1-5 pick up a card in the top row, 6-9 and 0 in the bottom row (the same key again turns it).
+  // Shift with the key rules a card out. K keeps, P passes.
   function onKey(e) {
     if (!game || game.done || e.ctrlKey || e.metaKey || e.altKey || $('view-play').hidden) return;
     if (document.querySelector('dialog[open]')) return;
     var tag = e.target && e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    var digit = /^(?:Digit|Numpad)([1-5])$/.exec(e.code || '');
+    var digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code || '');
     var key = String(e.key || '').toLowerCase();
     if (game.phase === 'turn' && digit) {
       e.preventDefault();
-      if (e.shiftKey) toggleMark(Number(digit[1]) - 1); else select(Number(digit[1]) - 1);
+      var at = digit[1] === '0' ? 9 : Number(digit[1]) - 1;
+      if (e.shiftKey) toggleMark(at); else select(at);
     } else if (game.phase === 'decide' && (key === 'k' || key === 'p')) {
       e.preventDefault();
       if (key === 'k') keep(); else pass();

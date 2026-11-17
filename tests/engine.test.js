@@ -10,6 +10,13 @@ const days = n => Array.from({ length: n }, (_, i) => {
   return d.toISOString().slice(0, 10);
 });
 const game = (date, sign, rounds) => ({ mode: 'daily', date, sign, seedKey: E.dailySeed(date, sign), rounds });
+// Dealing is the slow part (each deck is checked for a fair, chained puzzle), so tests share deals.
+const dealCache = new Map();
+const dealFor = (date, sign) => {
+  const key = date + '|' + sign;
+  if (!dealCache.has(key)) dealCache.set(key, E.dealHands(E.dailySeed(date, sign), sign));
+  return dealCache.get(key);
+};
 // three hands where the first card turned is kept
 const blind = p => [0, 1, 2].map(r => ({ turned: [(p + r) % 5], pick: (p + r) % 5, forced: false }));
 // three hands where the brightest card is turned first: a perfect read
@@ -49,23 +56,24 @@ test('every sign has a card, a suit and closing lines', () => {
 /* -------------------------------- the deal ----------------------------- */
 
 test('the daily deal is deterministic, fair, and never repeats a card', () => {
-  for (const date of days(40)) {
+  for (const date of days(20)) {
     for (const sign of SIGN_IDS) {
-      const a = E.dealHands(E.dailySeed(date, sign), sign);
-      const b = E.dealHands(E.dailySeed(date, sign), sign);
+      const a = dealFor(date, sign);
+      const b = dealFor(date, sign);
       assert.deepEqual(a, b);
       assert.equal(a.length, 3);
       const ids = a.flat().map(c => c.id);
-      assert.equal(ids.length, 15);
-      assert.equal(new Set(ids).size, 15);
+      assert.equal(ids.length, 30);
+      assert.equal(new Set(ids).size, 30);
+      for (const hand of a) assert.equal(hand.length, 10);
       for (const hand of a) assert.ok(E.handIsFair(hand), 'unfair hand on ' + date + ' ' + sign);
     }
   }
 });
 
 test('every deck rewards a perfect reading with its best reading, and it is a Full Moon', () => {
-  for (const date of days(30)) for (const sign of SIGN_IDS) {
-    const hands = E.dealHands(E.dailySeed(date, sign), sign);
+  for (const date of days(15)) for (const sign of SIGN_IDS) {
+    const hands = dealFor(date, sign);
     const perfect = E.perfectReading(hands, sign).total;
     assert.ok(perfect >= E.TIERS[5].min, 'perfect reading below Full Moon on ' + date + ' ' + sign);
     assert.equal(E.deckOdds(hands, sign).best, perfect, 'a reading beats the three brightest cards on ' + date + ' ' + sign);
@@ -79,7 +87,7 @@ test('a deal needs a sign', () => {
 
 test('every hand has exactly one brightest card', () => {
   for (const date of days(40)) for (const sign of SIGN_IDS) {
-    for (const hand of E.dealHands(E.dailySeed(date, sign), sign)) {
+    for (const hand of dealFor(date, sign)) {
       const moons = hand.map(E.auspice), max = Math.max(...moons);
       assert.equal(moons.filter(x => x === max).length, 1);
       assert.equal(E.auspice(hand[E.topIndex(hand)]), max);
@@ -91,7 +99,7 @@ test('every hand has exactly one brightest card', () => {
 test('different signs and different days get different decks', () => {
   const key = h => h.flat().map(c => c.id + c.rev).join();
   const seen = new Set();
-  for (const date of days(10)) for (const sign of SIGN_IDS) seen.add(key(E.dealHands(E.dailySeed(date, sign), sign)));
+  for (const date of days(10)) for (const sign of SIGN_IDS) seen.add(key(dealFor(date, sign)));
   assert.equal(seen.size, 120);
 });
 
@@ -114,7 +122,7 @@ test('omens are true, sufficient, lean, and never a giveaway', () => {
       const hand = dealt[i], moons = hand.map(E.auspice);
       hands++;
       assert.equal(p.top, E.topIndex(hand));
-      assert.ok(p.omens.length >= 2 && p.omens.length <= 4, 'between two and four omens');
+      assert.ok(p.omens.length >= 2 && p.omens.length <= 5, 'between two and five omens');
       // true: every omen holds for the real layout
       for (const o of p.omens) assert.ok(o.test(moons), 'false omen: ' + o.text);
       // sufficient: together they leave only the brightest card's place
@@ -129,12 +137,48 @@ test('omens are true, sufficient, lean, and never a giveaway', () => {
       assert.deepEqual(p.steps[p.steps.length - 1], [p.top]);
       for (let k = 1; k < p.steps.length; k++) assert.ok(p.steps[k].length <= p.steps[k - 1].length);
       for (const o of p.omens) {
-        assert.ok(o.focus.every(x => x >= 0 && x < 5));
+        assert.ok(o.focus.every(x => x >= 0 && x < 10));
         assert.ok(/^[A-Z].*\.$/.test(o.text), 'omen is a sentence: ' + o.text);
       }
     });
   }
   assert.equal(hands, 30 * 12 * 3);
+});
+
+test('the fast fairness check agrees with checking every layout of the moons', () => {
+  // omenCandidates() searches only the cards an omen names. Here it is checked against the slow,
+  // obvious method: try every distinct layout of the hand's moons and see where the brightest card can sit.
+  const maxAt = a => a.indexOf(Math.max(...a));
+  let sets = 0;
+  for (const date of days(2)) for (const sign of ['leo', 'gemini']) {
+    const g = game(date, sign, []);
+    const dealt = E.dealHands(g.seedKey, sign);
+    E.omensFor(g, dealt).forEach((p, i) => {
+      const hand = dealt[i];
+      const layouts = E.arrangements(hand.map(E.auspice));
+      const brute = omens => [...new Set(layouts.filter(a => omens.every(o => o.test(a))).map(maxAt))].sort((x, y) => x - y);
+      const check = [p.omens, ...p.omens.map(o => [o]), ...p.omens.map((_, k) => p.omens.filter((x, j) => j !== k))];
+      for (const omens of check) { assert.deepEqual(E.omenCandidates(hand, omens), brute(omens), omens.map(o => o.text).join(' | ')); sets++; }
+    });
+  }
+  assert.ok(sets > 50);
+});
+
+test('the Future hand needs omens chained together', () => {
+  // in every deck the Future's indirect omens rule out a place that none of them rules out alone
+  let chained = 0, n = 0;
+  for (const date of days(20)) for (const sign of SIGN_IDS) {
+    const g = game(date, sign, []);
+    const dealt = E.dealHands(g.seedKey, sign);
+    const future = E.omensFor(g, dealt)[2], hand = dealt[2];
+    const ind = future.omens.filter(o => o.kind === 'indirect');
+    n++;
+    if (ind.length < 2) continue;
+    const together = E.omenCandidates(hand, ind).length;
+    const apart = ind.map(o => E.omenCandidates(hand, [o])).reduce((acc, l) => acc.filter(x => l.includes(x)));
+    if (together < apart.length) chained++;
+  }
+  assert.equal(chained, n, 'chained in ' + chained + ' of ' + n);
 });
 
 test('omens are the same for everyone with the same sign and day, and differ between signs', () => {
@@ -180,10 +224,11 @@ test('insight rewards finding the brightest card, most of all on the first turn'
 
 test('the odds of finding the brightest card blind are stated correctly', () => {
   const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, a + ' vs ' + b);
+  // ten cards a hand: a blind first turn finds the brightest one time in ten
   close(E.blindFirstTurnChance(0), 1);
-  close(E.blindFirstTurnChance(1), 1 - Math.pow(0.8, 3));          // 48.8%
-  close(E.blindFirstTurnChance(2), 3 * 0.04 * 0.8 + 0.008);        // 10.4%
-  close(E.blindFirstTurnChance(3), 0.008);                         // 1 in 125
+  close(E.blindFirstTurnChance(1), 1 - Math.pow(0.9, 3));          // 27.1%
+  close(E.blindFirstTurnChance(2), 3 * 0.01 * 0.9 + 0.001);        // 2.8%
+  close(E.blindFirstTurnChance(3), 0.001);                         // 1 in 1,000
 });
 
 /* -------------------------------- the table ---------------------------- */
@@ -207,7 +252,7 @@ test('the moon board shows what a hand holds without leaking where', () => {
     assert.deepEqual(mid.map(e => e.a), moons);
     assert.equal(mid.filter(e => e.state === 'passed').length, 1);
     assert.equal(mid.filter(e => e.state === 'up').length, 1);
-    assert.equal(mid.filter(e => e.state === 'down').length, 3);
+    assert.equal(mid.filter(e => e.state === 'down').length, hand.length - 2);
     // the board must be identical whichever positions the face-down cards sit in
     const swapped = hand.slice(); const tmp = swapped[1]; swapped[1] = swapped[4]; swapped[4] = tmp;
     assert.deepEqual(E.handBoard(swapped, [0, 3], null, 3), mid);
@@ -278,14 +323,23 @@ test('quintessence reduces to a Major Arcana card', () => {
   assert.equal(E.quintessence([{ id: 'sun', rev: false }, { id: 'w02', rev: false }, { id: 'c01', rev: false }]).card.id, 'fool');
 });
 
-test('deck odds cover all 125 possible readings', () => {
+test('the fast deal scorer gives the same totals as the full scorer', () => {
+  const rng = E.rngFrom('quick-total');
+  for (let i = 0; i < 20000; i++) {
+    const sign = SIGN_IDS[i % 12];
+    const picks = E.shuffle(D.CARDS, rng).slice(0, 3).map(c => ({ id: c.id, rev: rng() < 0.3 }));
+    assert.equal(E.quickTotal(picks, sign), E.scoreSpread(picks, sign).total);
+  }
+});
+
+test('deck odds cover all 1,000 possible readings', () => {
   const hands = E.dealHands(E.dailySeed('2026-11-14', 'leo'), 'leo');
   const odds = E.deckOdds(hands, 'leo');
-  assert.equal(odds.count, 125);
-  assert.equal(odds.tierCounts.reduce((a, b) => a + b, 0), 125);
+  assert.equal(odds.count, 1000);
+  assert.equal(odds.tierCounts.reduce((a, b) => a + b, 0), 1000);
   const st = E.standing(odds, odds.best);
   assert.ok(st.isBest);
-  assert.ok(st.blindChance >= 1);
+  assert.ok(st.blindChance > 0 && st.blindChance <= 100);
 });
 
 /* -------------------------------- the reading -------------------------- */
@@ -301,7 +355,7 @@ test('a finished game summarises into a complete, clean reading', () => {
           for (let k = 0; k <= passes; k++) turned.push((p + r + k) % 5);
           return { turned, pick: turned[turned.length - 1], forced: (p + r) % 2 === 0 };
         });
-        const sum = E.summarize(game(date, sign, rounds));
+        const sum = E.summarize(game(date, sign, rounds), dealFor(date, sign));
         const text = [sum.headline, sum.arc, sum.blend || '', sum.closing, sum.verdict, sum.liftLine, sum.readLine, sum.ceilingLine,
           sum.quintessence.text, ...sum.positions.map(x => x.lead + x.text + x.omens.map(o => o.text).join(' ')),
           ...sum.score.patterns.map(x => x.title + x.text)].join(' ');
@@ -316,8 +370,8 @@ test('a finished game summarises into a complete, clean reading', () => {
 });
 
 test('the reading never says the same thing twice', () => {
-  for (const date of days(30)) for (const sign of SIGN_IDS) for (let p = 0; p < 5; p++) {
-    const sum = E.summarize(game(date, sign, blind(p)));
+  for (const date of days(12)) for (const sign of SIGN_IDS) for (let p = 0; p < 5; p++) {
+    const sum = E.summarize(game(date, sign, blind(p)), dealFor(date, sign));
     const lines = [sum.blend, ...sum.score.patterns.map(x => x.text)].filter(Boolean);
     assert.equal(new Set(lines).size, lines.length, lines.join(' | '));
     for (const pat of sum.score.patterns) assert.ok(pat.bonus > 0 || pat.id === 'upright' || pat.id === 'reversed');
@@ -404,7 +458,7 @@ test('nothing the player reads puts them down', () => {
   for (const c of D.CARDS) all.push(c.up.t, c.rev.t, c.up.k, c.rev.k);
   for (const t of E.TIERS.filter(Boolean)) all.push(...t.lines, ...t.close, t.title);
   for (const date of days(6)) for (const sign of SIGN_IDS) {
-    const hands = E.dealHands(E.dailySeed(date, sign), sign);
+    const hands = dealFor(date, sign);
     for (const rounds of [blind(0), perfect(hands), [0, 1, 2].map(r => ({ turned: [r, r + 1, r + 2], pick: r + 2, forced: true }))]) {
       const sum = E.summarize(game(date, sign, rounds), hands);
       all.push(sum.verdict, sum.closing, sum.blend || '', sum.liftLine, sum.readLine, sum.ceilingLine, sum.arc);

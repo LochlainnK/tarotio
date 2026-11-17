@@ -15,7 +15,7 @@ Tarotio is a daily puzzle, in the family of Wordle: one puzzle per day, a few mi
 play, a spoiler-free result to share, a streak to keep.
 
 The player picks their star sign. Each day a 78-card tarot deck is shuffled for that sign
-and deals **three hands of five cards, face down**. The player keeps **one card from each
+and deals **three hands of ten cards, face down in two rows of five**. The player keeps **one card from each
 hand**. Those three cards are their **Past, Present and Future**, and the game reads them
 together as the player's fortune for the day.
 
@@ -33,10 +33,11 @@ The game in one hand:
 
 What the player can see, and reasons from:
 
-- **The moon board.** A row of five moons above the hand: exactly what the hand holds,
+- **The moon board.** A row of ten moons above the hand: exactly what the hand holds,
   but never which card is which.
 - **Suit marks.** The back of each card shows its suit (or a star for Major Arcana).
-- **Position.** The cards sit in a row of five.
+- **Position.** The cards sit in a grid of two rows of five. Omens talk about rows,
+  columns, corners, and which cards touch (beside in a row, or directly above or below).
 
 The omens tie those three together. Working them out is the skill.
 
@@ -168,7 +169,8 @@ npm start
 
 1. Shuffle all 78 card ids with the seeded generator.
 2. Take the first 15. Each lands reversed with probability `REVERSED_CHANCE` (0.3).
-3. Split into three hands of five: Past, Present, Future.
+3. Split into three hands of ten: Past, Present, Future. Places in a hand are numbered row
+   by row: 0-4 the top row, 5-9 the bottom row.
 4. A deal is used only if all of these hold, checked cheapest first:
    - every hand is fair (`handIsFair`): **exactly one brightest card**, of brightness 4
      or 5, and some card of brightness 1 or 2;
@@ -176,9 +178,12 @@ npm start
      this sign (`perfectReading`);
    - no other combination of one card per hand scores higher (`deckOdds(...).best`);
    - every hand carries a real puzzle (`hasPuzzle`): at least two omens are needed to pin
-     its brightest card.
+     its brightest card;
+   - the Future's real omens are chained (`makeOmens(...).chained`, see 4.3).
    Otherwise reshuffle with the next attempt number (still deterministic) and try again.
-   About one shuffle in thirty passes; a deal takes under 2 ms.
+   The best-reading check scores all 1,000 readings with `quickTotal`, plain arithmetic
+   that a test keeps equal to `scoreSpread`. A deal plus all its omens takes about 12 ms
+   on a desktop (95th percentile 60 ms).
 
 `dealHands(seedKey, signId)` needs the sign, because bonuses depend on it. It throws
 without one.
@@ -191,42 +196,63 @@ Why each rule matters:
 
 ### 4.3 The omens (`makeOmens`, `omensFor`)
 
-Omens are built by generate-and-test, per hand:
+Omens are built per hand:
 
-1. **List every arrangement** of the hand's five moons over the five positions
-   (`arrangements`; at most 120).
-2. **List every true statement** from the vocabulary below (`omenPool`).
-3. **Drop giveaways:** any statement that pins the brightest card by itself.
-4. **Search** for a set of the planned shape that is *sufficient* (only one position is
-   left for the brightest card across all arrangements that satisfy every omen) and *lean*
-   (removing any omen leaves more than one position). The first such set in seeded-shuffle
-   order is used.
+1. **List every true statement** from the vocabulary below (`omenPool`).
+2. **Drop giveaways:** any statement that pins the brightest card by itself.
+3. **Search** for a set of the planned shape that is *sufficient* (only one place is left
+   for the brightest card) and *lean* (removing any omen leaves more than one place). The
+   first such set in seeded-shuffle order is used.
+
+**How "places left" is worked out.** A place is still possible for the brightest card if
+*some* layout of the hand's moons makes every omen true with the brightest card there.
+Direct omens are just sets of places, so they intersect. For indirect omens,
+`feasible(c, constraints, counts, T)` searches for such a layout, but only over the
+places and moons the omens name; every other place takes whatever moons are left, which
+always fits because places and moons number the same. This is exact. Checking every
+layout instead (up to 75,600 per hand) would be too slow on a phone; the tests still do
+it on sample hands and compare (`arrangements`, test "the fast fairness check agrees with
+checking every layout").
 
 The vocabulary has two kinds:
 
-- **Direct** omens are about the brightest card itself: what suit it is or is not, whether
-  it shares its suit, where it sits (an end, not an end, left or right of the middle, not
-  the middle), what suit it sits beside or does not, and which side of a uniquely marked
-  card it lies on.
-- **Indirect** omens are about other cards and have to be chained: "The left-hand Cups
-  card outshines the Wands card", "The middle card is dimmer than both its neighbours",
-  and statements about a moon that appears once on the board ("The New Moon is a Swords
-  card", "The Half Moon sits beside the brightest card").
+- **Direct** omens are about the brightest card itself: its row; outer, middle, left or
+  right columns; corners; its suit or not; whether it is the only one of its suit; what
+  suit it touches, sits beside in its row, or sits above or below; which column side or
+  row of a uniquely marked card it is on; diagonal to a uniquely marked card; between two
+  cards of the same suit.
+- **Indirect** omens are about other cards and have to be chained, as constraints:
+  `cmp` ("The Cups card in the top row outshines the Wands card"), `dim` / `peak` ("…is
+  dimmer than / outshines every card it touches"), `place` for a moon that appears once
+  on the board ("The Half Moon is in the bottom row", "…is a Cups card", "…sits in a
+  corner"), and `rel` for that moon against the brightest card ("The Half Moon touches /
+  shares a column with / is in the same row as the brightest card", "The brightest card
+  lies in a column left of the Half Moon").
 
-Difficulty rises through the day (`OMEN_PLANS`, written as direct + indirect):
+A card that has to be named in an indirect omen is named so a player can find it without
+counting: "the Swords card" if it is the only one, else "the Swords card in the top row",
+else "the left-hand Swords card in the top row", else "the third card of the top row".
 
-| Hand | Tier | Preferred shapes | In practice |
+Difficulty rises through the day (`OMEN_PLANS`, direct + indirect, "chained" meaning the
+indirect omens together rule out a place that none rules out alone):
+
+| Hand | Tier | Shapes, in order tried | In practice |
 |---|---|---|---|
-| Past | 1 | 2 + 0 | two plain omens |
-| Present | 2 | 2 + 1, then 1 + 2, then 3 + 0 | about three omens, one to chain |
-| Future | 3 | 1 + 2, then 2 + 2, 1 + 3, 2 + 1 | about three omens, two to chain |
+| Past | 1 | 2 + 0, 3 + 0 | two plain omens |
+| Present | 2 | 2 + 1, 1 + 2, 3 + 1 | three omens, one about other cards |
+| Future | 3 | chained 1 + 2, 2 + 2, 1 + 3, 0 + 2, 0 + 3, 2 + 3, 3 + 2 | three or four omens, always chained |
+
+Only indirect omens that share a subject (a card, a named moon, or the brightest card) can
+chain, so chained plans only try linked sets (`linked`); at most `OMEN_TRIES` (300) linked
+sets are scored per plan. The deal guarantees the Future is chained.
 
 If a hand allows none of its tier's shapes, the generator falls back to an easier tier,
 then to any shape in `OMEN_ANY`. The seed for a hand's omens is
 `"omens|<seedKey>|<handIndex>"`, so omens are the same for everyone with that sign and day.
+`omensFor` caches the result for the session.
 
-Each omen carries `focus` (the card positions it speaks of) and `moons` (the board moons
-it names). Tapping an omen lights those up. This is a reading aid, never the answer.
+Each omen carries `focus` (the places it speaks of) and `moons` (the board moons it
+names). Tapping an omen lights those up. This is a reading aid, never the answer.
 
 ### 4.4 Chips
 
@@ -247,7 +273,7 @@ played (`chipsWon` less passes).
 |---|---|
 | `turn` | The omens are on screen. The player picks a card up (first tap) and turns it (second tap, or the Turn it over button). The brightest card is kept at once and the hand goes to `reveal`. Any other card: with a chip in hand and another card face down, go to `decide`; otherwise it is kept at once (`forced: true`). |
 | `decide` | Only reached on a card that is not the brightest. The panel says so ("the brightest is still face down"), shows what the card adds to the spread and how many face-down cards are brighter or dimmer, and warns if it is the last chip with hands to come. **Keep** goes to `reveal`. **Pass** costs a chip, burns the card, and returns to `turn`. |
-| `reveal` | All five cards turn face up, the kept card flies to its place in the spread, and each omen shows what it narrowed the search to. |
+| `reveal` | All ten cards turn face up, the kept card flies to its place in the spread, and below the cards a row of small maps of the grid shows how each omen narrowed the places down. |
 
 The player can also **rule a card out** by tapping the label under it. That is their own
 pencil mark (`marks`); it changes nothing in the rules.
@@ -257,8 +283,14 @@ brightest card found at once), `fate` (kept on the first turn because there was 
 `dug` (kept after a pass, by choice or because it was the brightest), `last` (kept after a
 pass when the chips or cards ran out).
 
-Keyboard: 1 to 5 pick up a card; the same key or Enter turns it. Shift with 1 to 5 rules
-a card out. K keeps, P passes.
+Keyboard: 1 to 5 pick up a card in the top row, 6 to 9 and 0 in the bottom row; the same
+key or Enter turns it. Shift with the key rules a card out. K keeps, P passes.
+
+Layout: on phones and tablets (under 980 px) the order is spread, omens, moon board, cards,
+choice. The omens sit above the cards so a player can read the clues and see the grid
+together; the omen panel never changes height during a hand, so the cards never move. On
+wide screens the table (spread, moon board, cards) is on the left and the omens and
+choice on the right.
 
 ### 4.6 Brightness
 
@@ -314,13 +346,13 @@ passes it to chase a pattern is not marked down.
 ### 4.9 Telling luck from skill (`summarize`)
 
 - **The odds of doing it blind** (`blindFirstTurnChance`). Turning blind finds the
-  brightest card first in one hand in five. All three: once in 125 games. Two of three:
-  about one game in ten. At least one: about every other game. The result states the
+  brightest card first in one hand in ten. All three: once in 1,000 games. Two of three:
+  about one game in 36. At least one: about one game in four. The result states the
   figure for what the player did.
 - **The deck's best.** Always the three brightest cards and always a Full Moon (`ceiling`).
   A perfect reader is told it was skill. Anyone else is told where the omens pointed.
-- **The 125 blind readings** (`deckOdds`, `standing`). One card from each of three hands
-  gives 125 readings; the chart shows how many fall in each tier and which the player hit.
+- **The 1,000 blind readings** (`deckOdds`, `standing`). One card from each of three hands
+  gives 1,000 readings; the chart shows how many fall in each tier and which the player hit.
 - **First turns alone** (`firstScore`, `lift`). What the first card turned in each hand
   would have made, against the final reading: what the passes changed.
 - **The path** and **how the omens fitted.** Every card turned in each hand, in order, and
@@ -385,11 +417,15 @@ orientation are counted, and each reads differently for each of the 12 signs.
 ### Omen (built in `js/engine.js`, never stored)
 
 ```js
-{ kind: 'direct', text: 'The brightest card is not at either end.',
-  focus: [0, 4],          // card positions the omen speaks of, lit when the player taps it
+{ kind: 'direct', text: 'The brightest card sits in a corner.',
+  set: 0b1000110001,      // direct only: the places it allows, one bit per place
+  focus: [0, 4, 5, 9],    // places the omen speaks of, lit when the player taps it
   moons: [],              // board moons it names
-  test: function (a) {}   // true if this omen holds for an arrangement of moons, a[position] = moon
+  test: function (a) {}   // true if this omen holds for a layout of moons, a[place] = moon
 }
+{ kind: 'indirect', text: 'The Half Moon touches the brightest card.',
+  con: { type: 'rel', v: 3, rel: 'touch' },   // indirect only: the constraint feasible() reads
+  focus: [], moons: [3], test: function (a) {} }
 ```
 
 ### Saved state (`localStorage` key `tarotio.v1`)
@@ -445,31 +481,34 @@ Players are modelled on the real omens: each omen is applied correctly with prob
 p, in order, stopping at the first one they cannot use. They turn cards among the places
 still possible, and pass when they hold a chip and the card is not the brightest.
 
-Current output (300 days x 12 signs per player type):
+Current output (200 days x 12 signs per player type, two rows of five):
 
 | Player | Avg insight | New | Crescent | Half | Gibbous | Full |
 |---|---|---|---|---|---|---|
-| Blind: ignores the omens | 1.3 | 26.1% | 29.8% | 32.1% | 8.0% | 3.9% |
-| Uses half the omens (p .5) | 2.6 | 13.0% | 18.2% | 34.4% | 15.1% | 19.2% |
-| Learner (p .7) | 3.7 | 5.1% | 10.1% | 28.8% | 15.8% | 40.2% |
-| Regular (p .85) | 4.8 | 1.0% | 3.8% | 17.8% | 12.4% | 65.0% |
-| Sharp (p .95) | 5.6 | 0.1% | 0.3% | 6.6% | 5.4% | 87.6% |
+| Blind: ignores the omens | 0.6 | 34.3% | 35.0% | 25.0% | 4.6% | 1.2% |
+| Uses half the omens (p .5) | 2.1 | 15.3% | 23.0% | 37.5% | 14.2% | 10.0% |
+| Learner (p .7) | 3.4 | 6.0% | 12.0% | 32.5% | 19.9% | 29.7% |
+| Regular (p .85) | 4.6 | 1.3% | 4.3% | 21.5% | 16.8% | 56.2% |
+| Sharp (p .95) | 5.5 | 0.1% | 0.8% | 9.0% | 7.1% | 83.0% |
 | Perfect reader (p 1) | 6.0 | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% |
 
-Full Moon rate by element for a learner: Fire 39.1%, Earth 40.0%, Air 39.3%, Water 42.4%.
+Full Moon rate by element for a learner: Fire 28.2%, Earth 31.5%, Air 29.8%, Water 29.2%.
 
 Targets to keep after any change:
 
 - A perfect reader gets a Full Moon 100% of the time. (Guaranteed by the deal rule; the
   tests check it too.)
-- Full Moon rises steeply with skill: blind 2-8%, p .5 about 15-25%, p .85 about 55-75%,
-  p .95 at least 80%.
-- Blind players reach Gibbous or Full 8-20% of the time: luck is real, but small.
+- Full Moon rises steeply with skill: blind 0.5-4%, p .5 about 6-15%, p .85 about 45-70%,
+  p .95 at least 75%.
+- Blind players reach Gibbous or Full 3-10% of the time: luck is real, but small.
 - **Element fairness:** the "spread between the luckiest and unluckiest element" stays
   under 5 points.
-- Average omens per hand stays near 2, 3 and 3 for Past, Present and Future.
+- Every Future hand is chained (a test checks every deal in its sample).
 
-**How this changed.** Before the deal rule, a deck's best reading was a Full Moon on only
+**How this changed.** The second row (ten cards instead of five) made the puzzle harder
+and luck smaller: a blind first turn finds the brightest card one time in ten instead of
+one in five, and the Future always needs chained reasoning. With one row, the same players
+reached a Full Moon 3.9%, 19%, 40%, 65%, 88% and 100% of the time. Before the deal rule, a deck's best reading was a Full Moon on only
 about 55% of days, so even a perfect reader got the top fortune only 41% of the time, and
 everyone got a free chip per hand to re-roll blind. Now the deal guarantees a perfect
 reading is the best and a Full Moon, and chips are won by reading true.
@@ -507,7 +546,7 @@ Then update the table above.
   clean. A finished daily reopens on its reading.
 - Result screen: tier, one-line arc, three-card reading with the path of each hand,
   patterns, quintessence card, closing, verdict, the odds of doing it blind, the deck's
-  best, Insight and Fortune meters, per-hand breakdown, chart of the 125 blind readings.
+  best, Insight and Fortune meters, per-hand breakdown with maps of how the omens fitted, chart of the 1,000 blind readings.
 - Share to clipboard with a text fallback, spoiler-free, one row of moons per hand.
 - Stats: readings, current streak, best streak, average insight, the last 14 readings as
   moons, fortune history, "lucky breaks" and "earned" counts.
@@ -630,7 +669,7 @@ find the brightest cards without solving anything. For a casual game that is acc
 If the owner wants to prevent it:
 
 1. Add `GET /api/daily?date=YYYY-MM-DD&sign=leo` that returns, for each hand, only the
-   public information: the five suit marks in position order, the sorted list of five
+   public information: the ten suit marks in place order, the sorted list of ten
    moons, and the omen texts with their `focus` and `moons`. Compute them with the same
    `js/engine.js`, using the seed key `"<date>|<sign>|<SECRET>"` where `SECRET` is an
    environment variable that is never sent to the browser.
@@ -662,7 +701,8 @@ Run through this list on a phone and a desktop, in day and night themes:
 - [ ] No horizontal scrolling at 360 px wide, in every phase.
 - [ ] On a 360 x 640 phone, the hand, the omens and the main button are on screen together.
 - [ ] At 1280 px wide, the hand and the omens sit side by side.
-- [ ] The five cards stay in the same place for the whole hand.
+- [ ] The ten cards stay in the same place for the whole hand.
+- [ ] On a phone, the omens sit above the grid and both rows of cards are on screen with them.
 - [ ] In dev tools, a face-down card's markup contains no face, name or brightness.
 - [ ] With "reduce motion" on, nothing flips, flies or fades, and every number is correct at once.
 - [ ] With `localStorage` blocked (private window), a game can still be played to the end.
@@ -673,9 +713,10 @@ Run through this list on a phone and a desktop, in day and night themes:
 
 ## 10. Adding content after launch
 
-**More kinds of omen.** Add a template in `omenPool` in `js/engine.js`. Each template
-needs: a sentence, a `test(arrangement)` that depends only on positions, suit marks and
-moons, a `focus` list, and the right `kind`. Then run `npm test`: the puzzle tests check
+**More kinds of omen.** Add a template in `omenPool` in `js/engine.js`. A direct omen is
+just a set of places. An indirect omen needs a constraint type that `feasible()`,
+`conTest()` and `subjects()` all understand; add it to all three. Each needs a sentence,
+a `focus` list and a truth that depends only on places, suit marks and moons. Then run `npm test`: the puzzle tests check
 that every dealt hand still gets omens that are true, sufficient, lean and free of
 giveaways. Play at least ten hands that use the new template before shipping it. A new
 template changes which omens future days get; that is fine, but never ship one on a day
@@ -725,6 +766,8 @@ same in every language.
 - Do not add an animation that the player has to wait for before they can act, and do
   not add one without a reduced-motion fallback.
 - Do not put anything of changing height above the hand.
+- Do not replace `feasible()` with checking every layout of the moons in the game itself.
+  It is exact but too slow for a phone at ten cards; keep the brute-force check in the tests.
 - Do not add frameworks or a build step unless the owner asks. The game is about 180 KB
   of plain files and loads instantly.
 - Do not describe a result as the player's fault, and do not describe a card as bad.

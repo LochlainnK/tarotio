@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tarotio</title>
-<meta name="description" content="A daily tarot puzzle for your star sign. Read the omens, find the brightest card in each hand, and draw the Full Moon. Skill decides it; luck only fills the gaps.">
+<meta name="description" content="A daily tarot logic puzzle for your star sign. Read the omens, find the brightest card in a grid of ten, and draw the Full Moon. Skill decides it; luck only fills the gaps.">
 <meta name="theme-color" content="#163b34">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='5' fill='%238d2e2a' stroke='%23f7f1dd' stroke-width='4'/%3E%3Crect x='26' y='26' width='12' height='12' transform='rotate(45 32 32)' fill='%23f2c230'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -60,7 +60,7 @@
     <section id="view-intro" class="view intro">
       <div class="intro-copy">
         <h2 class="intro-title">One reading a day, dealt for your sign.</h2>
-        <p class="intro-lead">Three hands of five cards, face down. The reader gives you omens. Work out where the brightest card hides, turn it over, and keep the three cards that become your fortune for today.</p>
+        <p class="intro-lead">Three hands of ten cards, face down in two rows. The reader gives you omens. Work out where the brightest card hides, turn it over, and keep the three cards that become your fortune for today.</p>
         <div class="fan" aria-hidden="true">
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
           <span class="pcard is-static"><span class="pc-side pc-back"></span></span>
@@ -129,15 +129,16 @@
     <button type="button" class="nav-btn" data-close>Close</button>
   </div>
   <div class="sheet-body">
-    <p>Each day one deck is shuffled for every star sign. It deals you three hands of five cards, face down. You keep one card from each hand: your <b>Past</b>, <b>Present</b> and <b>Future</b>.</p>
+    <p>Each day one deck is shuffled for every star sign. It deals you three hands of ten cards, face down in two rows of five. You keep one card from each hand: your <b>Past</b>, <b>Present</b> and <b>Future</b>.</p>
     <ol class="steps">
-      <li><span><b>Read the omens.</b> Each hand comes with two to four omens. Every omen is true, and together they leave exactly one place the brightest card can be. The Past is plain. The Future is knotty.</span></li>
+      <li><span><b>Read the omens.</b> Each hand comes with two to five omens. Every omen is true, and together they leave exactly one place the brightest card can be. The Past is plain. The Future always needs omens chained together.</span></li>
       <li><span><b>Turn a card.</b> Tap a card to pick it up, then tap it again or press Turn it over.</span></li>
       <li><span><b>Found it, or not.</b> Turn the brightest card and it is yours at once. Turn any other card and, if you hold a chip, you can keep it or spend the chip to pass and turn again. A passed card is burned: you cannot go back to it. With no chips, the card you turn is the card you keep.</span></li>
       <li><span><b>Win chips.</b> Turn the brightest card on your first try and the reader gives you a chip for the hands ahead. Chips carry over, so reading the Past and Present true gives you room on the Future.</span></li>
     </ol>
     <h3 class="mini-h">What you can see</h3>
-    <p>Above each hand is a row of five moons: exactly what the hand holds, but never which card is which. The mark on the back of each card is its suit, or a star for the Major Arcana. The omens tie the two together.</p>
+    <p>Above each hand is a row of ten moons: exactly what the hand holds, but never which card is which. The mark on the back of each card is its suit, or a star for the Major Arcana. The omens tie the two together.</p>
+    <p>The omens use a few words for the grid. A card <b>touches</b> the cards beside it in its row and the card directly above or below it. The <b>corners</b> are the cards at both ends of both rows. The <b>outer columns</b> are the first and fifth. &ldquo;The Half Moon&rdquo; means the only card with that moon; the board shows when there is just one.</p>
     <div class="legend" id="suit-legend"></div>
     <p>Tap an omen to light up the cards it speaks of. Tap the label under a card to rule that card out; it is your pencil mark and changes nothing else.</p>
     <h3 class="mini-h">The moons</h3>
@@ -160,7 +161,7 @@
     <p>Luck comes in only where the omens get the better of you. A card turned on a guess can still be bright, and sometimes a guess lands on the brightest card. Turning all three blind finds them about once in 125 games.</p>
     <p>Your result shows both. <b>Insight</b> is how well you read the omens: two for each hand where your first turn was the brightest card, one where you found it after passing. <b>Fortune</b> is what the cards gave, beside the deck&rsquo;s best and how often turning blind would have done as well as you did.</p>
     <h3 class="mini-h">Keyboard</h3>
-    <p>1 to 5 pick up a card; the same key or Enter turns it. Shift with 1 to 5 rules a card out. K keeps, P passes.</p>
+    <p>1 to 5 pick up a card in the top row, 6 to 9 and 0 in the bottom row; the same key or Enter turns it. Shift with the key rules a card out. K keeps, P passes.</p>
   </div>
 </dialog>
 

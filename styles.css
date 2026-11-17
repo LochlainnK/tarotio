@@ -1,8 +1,9 @@
 /*
  * Tarotio styles.
  *
- * Layout: a card table. On a phone it is one column: the spread, the hand, the omens,
- * then the choice. On a wide screen the table sits on the left and the omens on the right.
+ * Layout: a card table. Each hand is a grid of ten cards, two rows of five. On a phone or
+ * tablet it is one column: the spread, the omens, the moon board, the cards, then the choice.
+ * On a wide screen the table sits on the left and the omens on the right.
  * World: red-backed cards on green baize, tarot faces drawn like poker cards.
  *
  * Every colour is a token on :root. The night table is the default; the day table
@@ -562,6 +563,7 @@ b { font-weight: 700; }
 /* above the hand: what it holds, and the chips in hand */
 .hud {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem 1.25rem;
@@ -582,7 +584,7 @@ b { font-weight: 700; }
 .float { position: absolute; right: -0.2rem; top: -0.9rem; font-weight: 700; font-size: var(--t-sm); color: var(--accent-text); pointer-events: none; opacity: 0; }
 
 /* The moon board: what the hand holds. Turned moons are marked; face-down moons stay lit. */
-.board { display: inline-flex; align-items: center; gap: 0.3rem; }
+.board { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; }
 .bm { position: relative; display: inline-grid; place-items: center; width: 1.65rem; height: 1.65rem; border-radius: 50%; transition: opacity 0.3s ease, box-shadow 0.2s ease; }
 .bm .moon { width: 1.35rem; height: 1.35rem; }
 .bm.is-passed { opacity: 0.45; }
@@ -614,7 +616,8 @@ b { font-weight: 700; }
 .hand {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: clamp(6px, 1.8vw, 16px);
+  column-gap: clamp(6px, 1.8vw, 16px);
+  row-gap: clamp(4px, 1.2vw, 10px);
   width: 100%;
   max-width: 640px;
   padding-top: 0.7rem;
@@ -730,24 +733,39 @@ b { font-weight: 700; }
 }
 .poker { font-weight: 500; color: var(--chalk-dim); }
 
+/* a tiny map of the hand: two rows of five, lit where the brightest card could be */
+.map {
+  display: inline-grid;
+  grid-template-columns: repeat(5, 0.5rem);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 4px;
+  background: var(--felt-deep);
+  vertical-align: middle;
+  flex: none;
+}
+.map i { display: block; width: 0.5rem; height: 0.7rem; border-radius: 1.5px; background: var(--rail); opacity: 0.45; }
+.map i.is-on { background: var(--sun); opacity: 0.55; }
+.map i.is-only { background: var(--sun); opacity: 1; }
+.fit-wrap { display: grid; gap: 0.35rem; }
+.fit { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; }
+.fit li { display: flex; align-items: center; gap: 0.35rem; }
+.fit-n { font-family: var(--font-ui); font-size: var(--t-xs); font-weight: 700; color: var(--accent-text); }
+.recap .fit { display: grid; gap: 0.4rem; padding: 0.2rem 0 0.4rem; }
+.recap .fit li { align-items: start; gap: 0.5rem; }
+.recap .fit-t { color: var(--chalk-dim); }
+
 .seen-wrap { display: grid; gap: 0.5rem; }
 .seen { display: grid; }
 .seen-item {
   display: grid;
-  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.6rem;
   align-items: start;
   padding: 0.5rem 0;
   border-top: 1px dashed var(--rail);
 }
-.seen-n {
-  font-family: var(--font-ui);
-  font-weight: 700;
-  font-size: var(--t-sm);
-  color: var(--chalk-dim);
-  text-align: center;
-  padding-top: 0.1rem;
-}
+.seen-n { padding-top: 0.15rem; }
 .seen-main { display: grid; gap: 0.05rem; min-width: 0; }
 .seen-name { font-family: var(--font-ui); font-weight: 700; }
 .seen-kw { font-size: var(--t-sm); color: var(--chalk-dim); }
@@ -992,6 +1010,19 @@ b { font-weight: 700; }
   .reader { min-height: 12rem; }
 }
 
+/* phones and tablets: one column, in reading order. The two wrappers step aside so their
+   children can be ordered: spread, omens, moon board, cards, choice, what was turned. */
+@media (max-width: 979px) {
+  .play { display: flex; flex-direction: column; align-items: stretch; }
+  .play-left, .play-right { display: contents; }
+  .play .spread-wrap { order: 1; }
+  .play .omens { order: 2; }
+  .play .hud { order: 3; }
+  .play .hand { order: 4; margin-inline: auto; }
+  .play .reader { order: 5; }
+  .play .seen-wrap { order: 6; }
+}
+
 /* a pointer that can hover: cards rise to meet it, and the fan opens */
 @media (hover: hover) and (pointer: fine) {
   .pcard.is-live:hover { transform: translateY(-5%); }
@@ -1019,7 +1050,11 @@ b { font-weight: 700; }
   .slot-label { font-size: 0.625rem; letter-spacing: 0.04em; }
   .slot-label .moon { display: none; }
   .hud-wide { display: none; }
-  .hand { padding-top: 0.55rem; }
+  .hud { gap: 0.35rem 0.8rem; }
+  .bm { width: 1.45rem; height: 1.45rem; }
+  .bm .moon { width: 1.2rem; height: 1.2rem; }
+  .hand { padding-top: 0.3rem; }
+  .cap, .cap-btn { min-height: 1.8rem; }
   .omens { padding: 0.8rem 0.75rem 0.85rem; gap: 0.45rem; }
   .omens-h, .prompt { font-size: var(--t-lg); }
   .omen { padding: 0.4rem 0.35rem; }
